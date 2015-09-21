@@ -153,6 +153,7 @@
 
 #include "dev.h"
 #include "net-sysfs.h"
+#include "skbuff_debug.h"
 
 
 static DEFINE_SPINLOCK(ptype_lock);

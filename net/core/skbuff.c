@@ -110,6 +110,7 @@ struct kmem_cache *skb_data_cache;
 #endif
 
 #include "skbuff_recycle.h"
+#include "skbuff_debug.h"
 
 struct kmem_cache *skbuff_head_cache __ro_after_init;
 static struct kmem_cache *skbuff_fclone_cache __ro_after_init;
@@ -320,8 +321,8 @@ static void __build_skb_around(struct sk_buff *skb, void *data,
 	shinfo = skb_shinfo(skb);
 	memset(shinfo, 0, offsetof(struct skb_shared_info, dataref));
 	atomic_set(&shinfo->dataref, 1);
-
 	skb_set_kcov_handle(skb, kcov_common_handle());
+	skbuff_debugobj_init_and_activate(skb);
 }
 
 /**
@@ -571,6 +572,7 @@ struct sk_buff *__alloc_skb(unsigned int size, gfp_t gfp_mask,
 		refcount_set(&fclones->fclone_ref, 1);
 	}
 
+	skbuff_debugobj_init_and_activate(skb);
 	return skb;
 
 nodata:
@@ -879,6 +881,7 @@ void kfree_skbmem(struct sk_buff *skb)
 
 	switch (skb->fclone) {
 	case SKB_FCLONE_UNAVAILABLE:
+		skbuff_debugobj_deactivate(skb);
 		kmem_cache_free(skbuff_head_cache, skb);
 		return;
 
@@ -899,7 +902,9 @@ void kfree_skbmem(struct sk_buff *skb)
 	}
 	if (!refcount_dec_and_test(&fclones->fclone_ref))
 		return;
+
 fastpath:
+	skbuff_debugobj_deactivate(&fclones->skb1);
 	kmem_cache_free(skbuff_fclone_cache, fclones);
 }
 
@@ -1763,6 +1768,7 @@ struct sk_buff *skb_clone(struct sk_buff *skb, gfp_t gfp_mask)
 			return NULL;
 
 		n->fclone = SKB_FCLONE_UNAVAILABLE;
+		skbuff_debugobj_init_and_activate(n);
 	}
 
 	return __skb_clone(n, skb);
@@ -5509,6 +5515,7 @@ void kfree_skb_partial(struct sk_buff *skb, bool head_stolen)
 	if (head_stolen) {
 		skb_release_head_state(skb);
 		kmem_cache_free(skbuff_head_cache, skb);
+		skbuff_debugobj_deactivate(skb);
 	} else {
 		__kfree_skb(skb);
 	}
