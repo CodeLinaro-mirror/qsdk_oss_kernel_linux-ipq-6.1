@@ -986,6 +986,8 @@ struct sk_buff {
 	__u8			csum_not_inet:1;
 	__u8			scm_io_uring:1;
 	__u8			fast_forwarded:1;
+	/* Linear packets processed by dev_fast_xmit() */
+	__u8			fast_xmit:1;
 	/* 1 or 3 bit hole */
 
 #ifdef CONFIG_NET_SCHED
