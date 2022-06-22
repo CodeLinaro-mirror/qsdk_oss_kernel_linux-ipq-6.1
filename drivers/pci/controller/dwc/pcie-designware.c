@@ -18,6 +18,7 @@
 
 #include "../../pci.h"
 #include "pcie-designware.h"
+#include "pcie-designware-debugfs.h"
 
 void dw_pcie_version_detect(struct dw_pcie *pci)
 {
@@ -116,6 +117,22 @@ static u16 dw_pcie_find_next_ext_capability(struct dw_pcie *pci, u16 start,
 
 	return 0;
 }
+
+u16 dw_pcie_find_vsec_capability(struct dw_pcie *pci, u8 vsec_cap)
+{
+	u16 vsec = 0;
+	u32 header;
+
+	while ((vsec = dw_pcie_find_next_ext_capability(pci, vsec,
+					PCI_EXT_CAP_ID_VNDR))) {
+		header = dw_pcie_readl_dbi(pci, vsec + PCI_VNDR_HEADER);
+		if (PCI_VNDR_HEADER_ID(header) == vsec_cap)
+			return vsec;
+	}
+
+	return 0;
+}
+EXPORT_SYMBOL_GPL(dw_pcie_find_vsec_capability);
 
 u16 dw_pcie_find_ext_capability(struct dw_pcie *pci, u8 cap)
 {
@@ -703,4 +720,7 @@ void dw_pcie_setup(struct dw_pcie *pci)
 		break;
 	}
 	dw_pcie_writel_dbi(pci, PCIE_LINK_WIDTH_SPEED_CONTROL, val);
+
+	if (create_debugfs_files(pci))
+		dev_err(pci->dev, "Couldn't create debugfs files\n");
 }
