@@ -28,6 +28,7 @@ properties:
           - qcom,tcsr-apq8084
           - qcom,tcsr-ipq6018
           - qcom,tcsr-ipq8064
+          - qcom,tcsr-ipq9574
           - qcom,tcsr-mdm9615
           - qcom,tcsr-msm8660
           - qcom,tcsr-msm8916
