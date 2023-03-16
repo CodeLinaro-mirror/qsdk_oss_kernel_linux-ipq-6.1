@@ -32,6 +32,7 @@
 
 #include <linux/mtd/mtd.h>
 #include <linux/mtd/partitions.h>
+#include <linux/mtd/blktrans.h>
 
 #include "mtdcore.h"
 
@@ -1072,6 +1073,8 @@ int mtd_device_parse_register(struct mtd_info *mtd, const char * const *types,
 	}
 
 	ret = mtd_otp_nvmem_add(mtd);
+
+	register_mtd_blktrans_devs();
 
 out:
 	if (ret && device_is_registered(&mtd->dev))
