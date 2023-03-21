@@ -19,6 +19,8 @@ properties:
       - qcom,ipq6018-qmp-pcie-phy
       - qcom,ipq8074-qmp-gen3-pcie-phy
       - qcom,ipq8074-qmp-pcie-phy
+      - qcom,ipq9574-qmp-gen3x1-pcie-phy
+      - qcom,ipq9574-qmp-gen3x2-pcie-phy
       - qcom,msm8998-qmp-pcie-phy
       - qcom,sc8180x-qmp-pcie-phy
       - qcom,sdm845-qhp-pcie-phy
@@ -167,6 +169,30 @@ allOf:
         compatible:
           contains:
             enum:
+              - qcom,ipq9574-qmp-gen3x1-pcie-phy
+              - qcom,ipq9574-qmp-gen3x2-pcie-phy
+    then:
+      properties:
+        clocks:
+          maxItems: 4
+        clock-names:
+          items:
+            - const: aux
+            - const: cfg_ahb
+            - const: anoc_lane
+            - const: snoc_lane
+        resets:
+          maxItems: 2
+        reset-names:
+          items:
+            - const: phy
+            - const: common
+
+  - if:
+      properties:
+        compatible:
+          contains:
+            enum:
               - qcom,sc8180x-qmp-pcie-phy
               - qcom,sdm845-qhp-pcie-phy
               - qcom,sdm845-qmp-pcie-phy
@@ -200,6 +226,7 @@ allOf:
         compatible:
           contains:
             enum:
+              - qcom,ipq9574-qmp-gen3x2-pcie-phy
               - qcom,sm8250-qmp-gen3x2-pcie-phy
               - qcom,sm8250-qmp-modem-pcie-phy
               - qcom,sm8450-qmp-gen4x2-pcie-phy
@@ -221,6 +248,7 @@ allOf:
         compatible:
           contains:
             enum:
+              - qcom,ipq9574-qmp-gen3x1-pcie-phy
               - qcom,sc8180x-qmp-pcie-phy
               - qcom,sdm845-qmp-pcie-phy
               - qcom,sdx55-qmp-pcie-phy
