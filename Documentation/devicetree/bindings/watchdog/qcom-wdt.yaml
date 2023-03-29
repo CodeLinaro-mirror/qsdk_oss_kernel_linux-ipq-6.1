@@ -17,6 +17,7 @@ properties:
     oneOf:
       - items:
           - enum:
+              - qcom,apss-wdt-ipq5332
               - qcom,apss-wdt-ipq9574
               - qcom,apss-wdt-qcs404
               - qcom,apss-wdt-sc7180
