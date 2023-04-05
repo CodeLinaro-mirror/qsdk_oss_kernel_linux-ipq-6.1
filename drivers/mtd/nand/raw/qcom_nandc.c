@@ -2937,6 +2937,8 @@ static int qcom_nand_attach_chip(struct nand_chip *chip)
 		return ret;
 	}
 
+	ecc->strength = mtd->oobsize >= 128 ? 8 : 4;
+
 	if (ecc->strength >= 8) {
 		/* 8 bit ECC defaults to BCH ECC on all platforms */
 		host->bch_enabled = true;
