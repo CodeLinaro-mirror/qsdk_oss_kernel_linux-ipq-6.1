@@ -6167,6 +6167,14 @@ static void bond_destructor(struct net_device *bond_dev)
 
 	if (bond->rr_tx_counter)
 		free_percpu(bond->rr_tx_counter);
+	/*
+	 * Wifi driver registered callback to destroy wiphy for MLO bond netdevice
+	 */
+	if (bond_is_mlo_device(bond_dev)) {
+		if (bond->mlo_info.bond_mlo_netdev_priv_destructor) {
+			bond->mlo_info.bond_mlo_netdev_priv_destructor(bond_dev);
+		}
+	}
 }
 
 void bond_setup(struct net_device *bond_dev)
