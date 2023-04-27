@@ -248,4 +248,10 @@ config QCOM_ICC_BWMON
 	  the fixed bandwidth votes from cpufreq (CPU nodes) thus achieve high
 	  memory throughput even with lower CPU frequencies.
 
+config IPQ_REG_UPDATE
+	bool "QTI, Subsystem register update driver"
+	depends on ARCH_QCOM
+	help
+	 Generic driver to configure required registers
+
 endmenu
