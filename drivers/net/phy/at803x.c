@@ -930,7 +930,7 @@ static int at803x_get_features(struct phy_device *phydev)
 				err & MDIO_PMA_NG_EXTABLE_2_5GBT);
 	}
 
-	if (phydev->drv->phy_id != ATH8031_PHY_ID)
+	if (phydev->drv->phy_id != ATH8031_PHY_ID && phydev->drv->phy_id != QCA8081_PHY_ID)
 		return 0;
 
 	/* AR8031/AR8033 have different status registers
@@ -943,6 +943,9 @@ static int at803x_get_features(struct phy_device *phydev)
 	 *
 	 * Remove this mode from the supported link modes
 	 * when not operating in 1000BaseX mode.
+	 *
+	 * QCA808X also need to remove the mode as only
+	 * support copper operation.
 	 */
 	if (!priv->is_1000basex)
 		linkmode_clear_bit(ETHTOOL_LINK_MODE_1000baseX_Full_BIT,
