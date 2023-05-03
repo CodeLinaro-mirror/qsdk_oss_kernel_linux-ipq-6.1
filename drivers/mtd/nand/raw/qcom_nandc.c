@@ -2925,6 +2925,7 @@ static int qcom_nand_attach_chip(struct nand_chip *chip)
 	ecc->size = NANDC_STEP_SIZE;
 	wide_bus = chip->options & NAND_BUSWIDTH_16 ? true : false;
 	cwperpage = mtd->writesize / NANDC_STEP_SIZE;
+	ecc->strength = mtd->oobsize >= 128 ? 8 : 4;
 
 	/*
 	 * Each CW has 4 available OOB bytes which will be protected with ECC
@@ -2936,8 +2937,6 @@ static int qcom_nand_attach_chip(struct nand_chip *chip)
 		dev_err(nandc->dev, "No valid ECC settings possible\n");
 		return ret;
 	}
-
-	ecc->strength = mtd->oobsize >= 128 ? 8 : 4;
 
 	if (ecc->strength >= 8) {
 		/* 8 bit ECC defaults to BCH ECC on all platforms */
