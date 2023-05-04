@@ -254,4 +254,12 @@ config IPQ_REG_UPDATE
 	help
 	 Generic driver to configure required registers
 
+config MSM_RPM_LOG
+	tristate "QTI Resource Power Manager Log Driver"
+	help
+	 This option enables a driver which can read from a circular buffer
+	 of messages produced by the RPM. These messages provide diagnostic
+	 information about RPM operation. The driver outputs the messages
+	 via a debugfs node.
+
 endmenu
