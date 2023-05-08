@@ -825,3 +825,10 @@ source "drivers/crypto/keembay/Kconfig"
 source "drivers/crypto/aspeed/Kconfig"
 
 endif # CRYPTO_HW
+
+config SECCRYPT
+	tristate "Support for SECCRYPT crypto driver"
+	default m
+	help
+	 This is a software crypto driver that encrypt/decrypt data using
+	 arm-isa cryptography instruction or trustzone using smc call.
