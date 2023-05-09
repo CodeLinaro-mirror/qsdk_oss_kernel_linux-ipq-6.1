@@ -299,82 +299,28 @@ invalid_pm_state:
 }
 
 void mhi_free_bhie_table(struct mhi_controller *mhi_cntrl,
-			 struct image_info *image_info, bool is_fbc)
+			 struct image_info *image_info)
 {
 	int i;
 	struct mhi_buf *mhi_buf = image_info->mhi_buf;
 
-	for (i = 0; i < image_info->entries; i++, mhi_buf++) {
-		/* For FBC image, element mhi_buf[img_info->entries - 2] points
-		 * to Dynamic paging region and it should not be freed.
-		 */
-		if (is_fbc && i == (image_info->entries - 2))
-			continue;
-
+	for (i = 0; i < image_info->entries; i++, mhi_buf++)
 		dma_free_coherent(mhi_cntrl->cntrl_dev, mhi_buf->len,
 				  mhi_buf->buf, mhi_buf->dma_addr);
-	}
 
 	kfree(image_info->mhi_buf);
 	kfree(image_info);
 }
 
-int mhi_update_bhie_table_for_dyn_paging(struct mhi_controller *mhi_cntrl,
-					 void *va, phys_addr_t pa,
-					 size_t size)
-{
-	struct image_info *image_info = mhi_cntrl->fbc_image;
-	int i, segments;
-	struct mhi_buf *mhi_buf;
-	struct bhi_vec_entry *bhi_vec;
-	struct device *dev = &mhi_cntrl->mhi_dev->dev;
-
-	if (!image_info) {
-		dev_err(dev, "FBC Image is NULL\n");
-		return -EINVAL;
-	}
-
-	segments = image_info->entries;
-
-	/* Find the free entry in bhi_vec table for dynamic paging region */
-	bhi_vec = &image_info->bhi_vec[0];
-	for (i = 0; (i < segments - 1); i++) {
-		if (!bhi_vec->dma_addr)
-			break;
-		bhi_vec++;
-	}
-
-	if (i == (segments - 1)) {
-		dev_err(dev, "No space in Vector Table\n");
-		return -ENOMEM;
-	}
-
-	bhi_vec->dma_addr = pa;
-	bhi_vec->size = size;
-
-	/* mhi_buf[segments - 2] is reserved Dynamic Paging region */
-	mhi_buf = &image_info->mhi_buf[segments - 2];
-	mhi_buf->buf = va;
-	mhi_buf->dma_addr = pa;
-	mhi_buf->len = size;
-
-	return 0;
-}
-EXPORT_SYMBOL_GPL(mhi_update_bhie_table_for_dyn_paging);
-
 int mhi_alloc_bhie_table(struct mhi_controller *mhi_cntrl,
 			 struct image_info **image_info,
-			 size_t alloc_size, bool is_fbc)
+			 size_t alloc_size)
 {
 	size_t seg_size = mhi_cntrl->seg_len;
 	int segments = DIV_ROUND_UP(alloc_size, seg_size) + 1;
 	int i;
 	struct image_info *img_info;
 	struct mhi_buf *mhi_buf;
-
-	/* Allocate one extra entry for Dynamic Pageable in FBC */
-	if (is_fbc)
-		segments++;
 
 	img_info = kzalloc(sizeof(*img_info), GFP_KERNEL);
 	if (!img_info)
@@ -391,28 +337,16 @@ int mhi_alloc_bhie_table(struct mhi_controller *mhi_cntrl,
 	for (i = 0; i < segments; i++, mhi_buf++) {
 		size_t vec_size = seg_size;
 
-		if (is_fbc && (i == segments - 2)) {
-			/* Initialize an entry for Dynamic paging region which
-			 * would be updated later in
-			 * mhi_update_bhie_table_for_dyn_paging
-			 */
-			vec_size = 0;
-			mhi_buf->buf = NULL;
-			mhi_buf->dma_addr = 0;
-		} else {
-			/* Vector table is the last entry */
-			if (i == segments - 1)
-				vec_size = sizeof(struct bhi_vec_entry) * i;
+		/* Vector table is the last entry */
+		if (i == segments - 1)
+			vec_size = sizeof(struct bhi_vec_entry) * i;
 
-			mhi_buf->len = vec_size;
-			mhi_buf->buf = dma_alloc_coherent(mhi_cntrl->cntrl_dev,
-							  vec_size,
-							  &mhi_buf->dma_addr,
-							  GFP_KERNEL);
-			if (!mhi_buf->buf)
-				goto error_alloc_segment;
-		}
-
+		mhi_buf->len = vec_size;
+		mhi_buf->buf = dma_alloc_coherent(mhi_cntrl->cntrl_dev,
+						  vec_size, &mhi_buf->dma_addr,
+						  GFP_KERNEL);
+		if (!mhi_buf->buf)
+			goto error_alloc_segment;
 	}
 
 	img_info->bhi_vec = img_info->mhi_buf[segments - 1].buf;
@@ -446,7 +380,7 @@ static void mhi_firmware_copy(struct mhi_controller *mhi_cntrl,
 		to_cpy = min(remainder, mhi_buf->len);
 		memcpy(mhi_buf->buf, buf, to_cpy);
 		bhi_vec->dma_addr = mhi_buf->dma_addr;
-		bhi_vec->size = mhi_buf->len;
+		bhi_vec->size = to_cpy;
 
 		buf += to_cpy;
 		remainder -= to_cpy;
@@ -546,7 +480,7 @@ void mhi_fw_load_handler(struct mhi_controller *mhi_cntrl)
 	 */
 	if (mhi_cntrl->fbc_download) {
 		ret = mhi_alloc_bhie_table(mhi_cntrl, &mhi_cntrl->fbc_image,
-					   firmware->size, true);
+					   firmware->size);
 		if (ret) {
 			release_firmware(firmware);
 			goto error_fw_load;
@@ -571,7 +505,7 @@ fw_load_ready_state:
 
 error_ready_state:
 	if (mhi_cntrl->fbc_download) {
-		mhi_free_bhie_table(mhi_cntrl, mhi_cntrl->fbc_image, true);
+		mhi_free_bhie_table(mhi_cntrl, mhi_cntrl->fbc_image);
 		mhi_cntrl->fbc_image = NULL;
 	}
 
