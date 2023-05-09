@@ -1135,14 +1135,13 @@ int mhi_prepare_for_power_up(struct mhi_controller *mhi_cntrl)
 		 * Allocate RDDM table for debugging purpose if specified
 		 */
 		mhi_alloc_bhie_table(mhi_cntrl, &mhi_cntrl->rddm_image,
-				     mhi_cntrl->rddm_size, false);
+				     mhi_cntrl->rddm_size);
 		if (mhi_cntrl->rddm_image) {
 			ret = mhi_rddm_prepare(mhi_cntrl,
 					       mhi_cntrl->rddm_image);
 			if (ret) {
 				mhi_free_bhie_table(mhi_cntrl,
-						    mhi_cntrl->rddm_image,
-						    false);
+						    mhi_cntrl->rddm_image);
 				goto error_reg_offset;
 			}
 		}
@@ -1165,12 +1164,12 @@ EXPORT_SYMBOL_GPL(mhi_prepare_for_power_up);
 void mhi_unprepare_after_power_down(struct mhi_controller *mhi_cntrl)
 {
 	if (mhi_cntrl->fbc_image) {
-		mhi_free_bhie_table(mhi_cntrl, mhi_cntrl->fbc_image, true);
+		mhi_free_bhie_table(mhi_cntrl, mhi_cntrl->fbc_image);
 		mhi_cntrl->fbc_image = NULL;
 	}
 
 	if (mhi_cntrl->rddm_image) {
-		mhi_free_bhie_table(mhi_cntrl, mhi_cntrl->rddm_image, false);
+		mhi_free_bhie_table(mhi_cntrl, mhi_cntrl->rddm_image);
 		mhi_cntrl->rddm_image = NULL;
 	}
 

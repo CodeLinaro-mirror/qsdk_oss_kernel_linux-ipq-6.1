@@ -773,17 +773,6 @@ void mhi_unprepare_from_transfer(struct mhi_device *mhi_dev);
 int mhi_poll(struct mhi_device *mhi_dev, u32 budget);
 
 /**
- * mhi_update_bhie_table_for_dyn_paging - Add the dynamic paging memory region
- * into the mhi_buf table.
- * @mhi_cntrl: MHI controller
- * @va: Virtual Address of the memory region
- * @pa: Physical Address of the memory region
- * @size: Size of the memory region
- */
-int mhi_update_bhie_table_for_dyn_paging(struct mhi_controller *mhi_cntrl,
-					 void *va, phys_addr_t pa,
-					 size_t size);
-/**
  * mhi_queue_dma - Send or receive DMA mapped buffers from client device
  *                 over MHI channel
  * @mhi_dev: Device associated with the channels
