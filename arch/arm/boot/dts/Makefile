@@ -1048,6 +1048,18 @@ dtb-$(CONFIG_ARCH_QCOM) += \
 	qcom-ipq4019-ap.dk07.1-c2.dtb \
 	qcom-ipq8064-ap148.dtb \
 	qcom-ipq8064-rb3011.dtb \
+	ipq9574-rdp418.dtb \
+	ipq9574-rdp433.dtb \
+	ipq9574-rdp449.dtb \
+	ipq9574-rdp453.dtb \
+	ipq9574-rdp454.dtb \
+	ipq9574-rdp455.dtb \
+	ipq9574-rdp456.dtb \
+	ipq9574-rdp457.dtb \
+	ipq9574-rdp458.dtb \
+	ipq9574-rdp459.dtb \
+	ipq9574-rdp467.dtb \
+	ipq9574-rdp469.dtb \
 	qcom-msm8226-samsung-s3ve3g.dtb \
 	qcom-msm8660-surf.dtb \
 	qcom-msm8916-samsung-e5.dtb \
