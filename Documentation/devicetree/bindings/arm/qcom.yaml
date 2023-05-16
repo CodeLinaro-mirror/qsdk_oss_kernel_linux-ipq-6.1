@@ -69,6 +69,9 @@ description: |
         adp
         ap-al02-c4
         ap-mi01.2
+        ap-mi01.3
+        ap-mi04.1
+        ap-mi01.2-qcn9160-c1
         cdp
         cp01-c1
         dragonboard
@@ -260,6 +263,9 @@ properties:
       - items:
           - enum:
               - qcom,ipq5332-ap-mi01.2
+              - qcom,ipq5332-ap-mi01.3
+              - qcom,ipq5332-ap-mi04.1
+              - qcom,ipq5332-ap-mi01.2-qcn9160-c1
           - const: qcom,ipq5332
 
       - items:
