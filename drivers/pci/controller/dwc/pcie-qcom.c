@@ -118,6 +118,11 @@
 /* RATEADAPT_VAL = 256 / ((342M / 240M) - 1) */
 #define AGGR_NOC_PCIE_1LANE_RATEADAPT_VAL	0x200
 
+/* RATEADAPT_VAL = 256 / ((266M / 240M) - 1) = 2363 > Max Value 1023*/
+#define SYSTEM_NOC_PCIE_RATEADAPT_VAL_MAX	0x3FF
+
+#define SYSTEM_NOC_PCIE_RATEADAPT_BYPASS	0x1
+
 #define PCIE20_LNK_CONTROL2_LINK_STATUS2	0xa0
 
 #define DEVICE_TYPE_RC				0x4
@@ -233,11 +238,13 @@ struct qcom_pcie {
 	void __iomem *parf;			/* DT parf */
 	void __iomem *elbi;			/* DT elbi */
 	void __iomem *aggr_noc;
+	void __iomem *system_noc;
 	union qcom_pcie_resources res;
 	struct phy *phy;
 	struct gpio_desc *reset;
 	const struct qcom_pcie_cfg *cfg;
 	uint32_t axi_wr_addr_halt;
+	uint32_t num_lanes;
 };
 
 #define to_qcom_pcie(x)		dev_get_drvdata((x)->dev)
@@ -1512,6 +1519,13 @@ static int qcom_pcie_post_init_1_27_0(struct qcom_pcie *pcie)
 	if (pcie->aggr_noc != NULL && !IS_ERR(pcie->aggr_noc))
 		writel(AGGR_NOC_PCIE_1LANE_RATEADAPT_VAL, pcie->aggr_noc);
 
+	if (pcie->system_noc != NULL && !IS_ERR(pcie->system_noc)) {
+		if (pcie->num_lanes == 1)
+			writel(SYSTEM_NOC_PCIE_RATEADAPT_VAL_MAX, pcie->system_noc);
+		else
+			writel(SYSTEM_NOC_PCIE_RATEADAPT_BYPASS, pcie->system_noc);
+	}
+
 	dw_pcie_dbi_ro_wr_en(pci);
 	writel(PCIE_CAP_SLOT_VAL, pci->dbi_base + offset + PCI_EXP_SLTCAP);
 
@@ -1794,6 +1808,7 @@ static int qcom_pcie_probe(struct platform_device *pdev)
 	const struct qcom_pcie_cfg *pcie_cfg;
 	int ret;
 	struct resource *res;
+	uint32_t num_lanes = 0;
 
 	pcie_cfg = of_device_get_match_data(dev);
 	if (!pcie_cfg || !pcie_cfg->ops) {
@@ -1849,8 +1864,21 @@ static int qcom_pcie_probe(struct platform_device *pdev)
 		}
 	}
 
+	res = platform_get_resource_byname(pdev, IORESOURCE_MEM, "system_noc");
+	if (res != NULL) {
+		pcie->system_noc = devm_ioremap_resource(dev, res);
+		if (IS_ERR(pcie->system_noc)) {
+			ret = PTR_ERR(pcie->system_noc);
+			goto err_pm_runtime_put;
+		}
+	}
+
 	of_property_read_u32(pdev->dev.of_node, "axi-halt-val",
 				&pcie->axi_wr_addr_halt);
+
+	of_property_read_u32(pdev->dev.of_node, "num-lanes",
+				&num_lanes);
+	pcie->num_lanes = num_lanes;
 
 	pcie->phy = devm_phy_optional_get(dev, "pciephy");
 	if (IS_ERR(pcie->phy)) {
