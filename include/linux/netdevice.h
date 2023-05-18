@@ -1704,6 +1704,32 @@ enum netdev_priv_flags {
 	IFF_NO_IP_ALIGN			= BIT_ULL(33),
 };
 
+/**
+ * enum netdev_priv_flags_ext - &struct net_device priv_flags_ext
+ *
+ * These flags are used to check for device type and can be
+ * set and used by the drivers
+ *
+ * @IFF_EXT_TUN_TAP: device is a TUN/TAP device
+ * @IFF_EXT_PPP_L2TPV2: device is a L2TPV2 device
+ * @IFF_EXT_PPP_L2TPV3: device is a L2TPV3 device
+ * @IFF_EXT_PPP_PPTP: device is a PPTP device
+ * @IFF_EXT_GRE_V4_TAP: device is a GRE IPv4 TAP device
+ * @IFF_EXT_GRE_V6_TAP: device is a GRE IPv6 TAP device
+ * @IFF_EXT_IFB: device is an IFB device
+ * @IFF_EXT_MAPT: device is an MAPT device
+ */
+enum netdev_priv_flags_ext {
+	IFF_EXT_TUN_TAP			= 1<<0,
+	IFF_EXT_PPP_L2TPV2		= 1<<1,
+	IFF_EXT_PPP_L2TPV3		= 1<<2,
+	IFF_EXT_PPP_PPTP		= 1<<3,
+	IFF_EXT_GRE_V4_TAP		= 1<<4,
+	IFF_EXT_GRE_V6_TAP		= 1<<5,
+	IFF_EXT_IFB				= 1<<6,
+	IFF_EXT_MAPT			= 1<<7,
+};
+
 #define IFF_802_1Q_VLAN			IFF_802_1Q_VLAN
 #define IFF_EBRIDGE			IFF_EBRIDGE
 #define IFF_BONDING			IFF_BONDING
@@ -1816,6 +1842,8 @@ enum netdev_ml_priv_type {
  *	@flags:		Interface flags (a la BSD)
  *	@priv_flags:	Like 'flags' but invisible to userspace,
  *			see if.h for the definitions
+ *	@priv_flags_ext:	Extension for 'priv_flags'
+ *
  *	@gflags:	Global flags ( kept as legacy )
  *	@padded:	How much padding added by alloc_netdev()
  *	@operstate:	RFC2863 operstate
@@ -2047,6 +2075,7 @@ struct net_device {
 	/* Read-mostly cache-line for fast-path access */
 	unsigned int		flags;
 	unsigned long long	priv_flags;
+	unsigned int		priv_flags_ext;
 	const struct net_device_ops *netdev_ops;
 	int			ifindex;
 	unsigned short		gflags;
@@ -2934,7 +2963,6 @@ netdev_notifier_info_to_extack(const struct netdev_notifier_info *info)
 }
 
 int call_netdevice_notifiers(unsigned long val, struct net_device *dev);
-
 
 extern rwlock_t				dev_base_lock;		/* Device list lock */
 
@@ -4168,7 +4196,6 @@ static inline bool netif_dormant(const struct net_device *dev)
 	return test_bit(__LINK_STATE_DORMANT, &dev->state);
 }
 
-
 /**
  *	netif_testing_on - mark device as under test.
  *	@dev: network device
@@ -5098,6 +5125,11 @@ static inline bool netif_is_failover(const struct net_device *dev)
 static inline bool netif_is_failover_slave(const struct net_device *dev)
 {
 	return dev->priv_flags & IFF_FAILOVER_SLAVE;
+}
+
+static inline bool netif_is_ifb_dev(const struct net_device *dev)
+{
+	return dev->priv_flags_ext & IFF_EXT_IFB;
 }
 
 /* This device needs to keep skb dst for qdisc enqueue or ndo_start_xmit() */
