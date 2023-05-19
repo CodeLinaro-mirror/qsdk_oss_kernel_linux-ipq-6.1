@@ -277,6 +277,9 @@
 #define QCA808X_PHY_MMD7_CHIP_TYPE		0x901d
 #define QCA808X_PHY_CHIP_TYPE_1G		BIT(0)
 
+#define QCA8081_PHY_SERDES_MMD1_FIFO_CTRL	0x9072
+#define QCA8081_PHY_FIFO_RSTN			BIT(11)
+
 MODULE_DESCRIPTION("Qualcomm Atheros AR803x and QCA808X PHY driver");
 MODULE_AUTHOR("Matus Ujhelyi");
 MODULE_LICENSE("GPL");
@@ -1842,6 +1845,17 @@ static int qca808x_config_init(struct phy_device *phydev)
 			QCA808X_ADC_THRESHOLD_MASK, QCA808X_ADC_THRESHOLD_100MV);
 }
 
+static int qca808x_fifo_reset(struct phy_device *phydev)
+{
+	if (phydev->phy_id != QCA8081_PHY_ID)
+		return 0;
+
+	/* Reset serdes fifo, the serdes address is phy address added by 1 */
+	return mdiobus_modify(phydev->mdio.bus, phydev->mdio.addr + 1,
+			mdiobus_c45_addr(MDIO_MMD_PMAPMD, QCA8081_PHY_SERDES_MMD1_FIFO_CTRL),
+			QCA8081_PHY_FIFO_RSTN, phydev->link ? QCA8081_PHY_FIFO_RSTN : 0);
+}
+
 static int qca808x_read_status(struct phy_device *phydev)
 {
 	int ret;
@@ -1858,6 +1872,10 @@ static int qca808x_read_status(struct phy_device *phydev)
 		return ret;
 
 	ret = at803x_read_specific_status(phydev);
+	if (ret < 0)
+		return ret;
+
+	ret = qca808x_fifo_reset(phydev);
 	if (ret < 0)
 		return ret;
 
