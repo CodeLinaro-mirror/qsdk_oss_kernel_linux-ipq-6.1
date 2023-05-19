@@ -1048,8 +1048,10 @@ dtb-$(CONFIG_ARCH_QCOM) += \
 	qcom-ipq4019-ap.dk07.1-c2.dtb \
 	qcom-ipq8064-ap148.dtb \
 	qcom-ipq8064-rb3011.dtb \
+	ipq9574-rdp417.dtb \
 	ipq9574-rdp418.dtb \
 	ipq9574-rdp433.dtb \
+	ipq9574-rdp433-mht-phy.dtb \
 	ipq9574-rdp449.dtb \
 	ipq9574-rdp453.dtb \
 	ipq9574-rdp454.dtb \
