@@ -2826,6 +2826,8 @@ enum netdev_cmd {
 	NETDEV_OFFLOAD_XSTATS_DISABLE,
 	NETDEV_OFFLOAD_XSTATS_REPORT_USED,
 	NETDEV_OFFLOAD_XSTATS_REPORT_DELTA,
+	NETDEV_BR_JOIN,
+	NETDEV_BR_LEAVE,
 };
 const char *netdev_cmd_to_name(enum netdev_cmd cmd);
 
