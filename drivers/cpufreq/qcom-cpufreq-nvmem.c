@@ -36,11 +36,18 @@ enum _msm_id {
 	APQ8096V3 = 0x123ul,
 	MSM8996SG = 0x131ul,
 	APQ8096SG = 0x138ul,
+	IPQ9574V1 = 0x202ul,
+	IPQ9570V1 = 0x201ul,
+	IPQ9554V1 = 0x200ul,
+	IPQ9550V1 = 0x1fful,
+	IPQ9514V1 = 0x1feul,
+	IPQ9510V1 = 0x209ul,
 };
 
 enum _msm8996_version {
 	MSM8996_V3,
 	MSM8996_SG,
+	IPQ95XX_V1,
 	NUM_OF_MSM8996_VERSIONS,
 };
 
@@ -162,6 +169,14 @@ static enum _msm8996_version qcom_cpufreq_get_msm_id(void)
 	case APQ8096SG:
 		version = MSM8996_SG;
 		break;
+	case IPQ9574V1:
+	case IPQ9570V1:
+	case IPQ9554V1:
+	case IPQ9550V1:
+	case IPQ9514V1:
+	case IPQ9510V1:
+		version = IPQ95XX_V1;
+		break;
 	default:
 		version = NUM_OF_MSM8996_VERSIONS;
 	}
@@ -195,6 +210,20 @@ static int qcom_cpufreq_kryo_name_version(struct device *cpu_dev,
 		break;
 	case MSM8996_SG:
 		drv->versions = 1 << ((unsigned int)(*speedbin) + 4);
+		break;
+	case IPQ95XX_V1:
+		/* Fuse Value    Freq    BIT to set
+		 * ---------------------------------
+		 *   2’b00     No Limit     BIT(0)
+		 *   2’b10     1.8 GHz      BIT(1)
+		 *   2’b01     1.5 Ghz      BIT(2)
+		 *   2’b11     1.2 GHz      BIT(3)  */
+		if ((unsigned int)(*speedbin) == 2)
+			drv->versions = BIT(1);
+		else if ((unsigned int)(*speedbin) == 1)
+			drv->versions = BIT(2);
+		else
+			drv->versions = 1 << (unsigned int)(*speedbin);
 		break;
 	default:
 		BUG();
@@ -279,7 +308,8 @@ static int qcom_cpufreq_probe(struct platform_device *pdev)
 	if (!np)
 		return -ENOENT;
 
-	ret = of_device_is_compatible(np, "operating-points-v2-kryo-cpu");
+	ret = of_device_is_compatible(np, "operating-points-v2-kryo-cpu") ||
+		of_device_is_compatible(np, "operating-points-v2-ipq9574");
 	if (!ret) {
 		of_node_put(np);
 		return -ENOENT;
@@ -404,6 +434,7 @@ static const struct of_device_id qcom_cpufreq_match_list[] __initconst = {
 	{ .compatible = "qcom,msm8996", .data = &match_data_kryo },
 	{ .compatible = "qcom,qcs404", .data = &match_data_qcs404 },
 	{ .compatible = "qcom,ipq8064", .data = &match_data_krait },
+	{ .compatible = "qcom,ipq9574", .data = &match_data_kryo },
 	{ .compatible = "qcom,apq8064", .data = &match_data_krait },
 	{ .compatible = "qcom,msm8974", .data = &match_data_krait },
 	{ .compatible = "qcom,msm8960", .data = &match_data_krait },
