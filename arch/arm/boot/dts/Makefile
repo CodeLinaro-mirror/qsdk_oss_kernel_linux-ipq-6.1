@@ -1052,6 +1052,8 @@ dtb-$(CONFIG_ARCH_QCOM) += \
 	ipq9574-rdp418.dtb \
 	ipq9574-rdp433.dtb \
 	ipq9574-rdp433-mht-phy.dtb \
+	ipq9574-rdp433-mht-switch.dtb \
+	ipq9574-rdp437.dtb \
 	ipq9574-rdp449.dtb \
 	ipq9574-rdp453.dtb \
 	ipq9574-rdp454.dtb \
@@ -1060,6 +1062,7 @@ dtb-$(CONFIG_ARCH_QCOM) += \
 	ipq9574-rdp457.dtb \
 	ipq9574-rdp458.dtb \
 	ipq9574-rdp459.dtb \
+	ipq9574-rdp461.dtb \
 	ipq9574-rdp467.dtb \
 	ipq9574-rdp469.dtb \
 	ipq5332-rdp441.dtb \
