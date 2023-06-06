@@ -336,8 +336,16 @@ static const struct soc_id soc_id[] = {
 	{ 487, "SC7280" },
 	{ 495, "SC7180P" },
 	{ 507, "SM6375" },
+	{ 510, "IPQ9514" },
+	{ 511, "IPQ9550" },
+	{ 512, "IPQ9554" },
+	{ 513, "IPQ9570" },
+	{ 514, "IPQ9574" },
+	{ 521, "IPQ9510" },
 	{ 592, "IPQ5332" },
 	{ 593, "IPQ5322" },
+	{ 594, "IPQ5312" },
+	{ 595, "IPQ5302" },
 };
 
 static const char *socinfo_machine(struct device *dev, unsigned int id)
