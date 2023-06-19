@@ -687,8 +687,8 @@ static const struct qmp_phy_init_tbl ipq9574_pcie_rx_tbl[] = {
 	QMP_PHY_INIT_CFG(QSERDES_V4_RX_UCDR_SO_GAIN, 0x02),
 	QMP_PHY_INIT_CFG(QSERDES_V4_RX_UCDR_SO_SATURATION_AND_ENABLE, 0x7F),
 	QMP_PHY_INIT_CFG(QSERDES_V4_RX_UCDR_PI_CONTROLS, 0x70),
-	QMP_PHY_INIT_CFG(QSERDES_V4_RX_RX_EQU_ADAPTOR_CNTRL1, 0x73),
-	QMP_PHY_INIT_CFG(QSERDES_V4_RX_RX_EQU_ADAPTOR_CNTRL2, 0x80),
+	QMP_PHY_INIT_CFG(QSERDES_V4_RX_RX_EQ_OFFSET_ADAPTOR_CNTRL1, 0x73),
+	QMP_PHY_INIT_CFG(QSERDES_V4_RX_RX_OFFSET_ADAPTOR_CNTRL2, 0x80),
 	QMP_PHY_INIT_CFG(QSERDES_V4_RX_RX_MODE_10_LOW, 0x00),
 	QMP_PHY_INIT_CFG(QSERDES_V4_RX_RX_MODE_10_HIGH, 0x02),
 	QMP_PHY_INIT_CFG(QSERDES_V4_RX_RX_MODE_10_HIGH2, 0xC8),
@@ -1850,8 +1850,11 @@ static const struct qmp_phy_cfg ipq9574_gen3x1_pciephy_cfg = {
 	.num_vregs              = 0,
 	.regs                   = ipq_pciephy_gen3_regs_layout,
 
+	.start_ctrl             = SERDES_START | PCS_START,
 	.pwrdn_ctrl             = SW_PWRDN | REFCLK_DRV_DSBL,
 	.phy_status             = PHYSTATUS,
+
+	.pipe_clock_rate        = 250000000,
 };
 
 static const struct qmp_phy_cfg ipq9574_gen3x2_pciephy_cfg = {
@@ -1877,9 +1880,11 @@ static const struct qmp_phy_cfg ipq9574_gen3x2_pciephy_cfg = {
 	.num_vregs              = 0,
 	.regs                   = ipq_pciephy_gen3_regs_layout,
 
+	.start_ctrl             = SERDES_START | PCS_START,
 	.pwrdn_ctrl             = SW_PWRDN | REFCLK_DRV_DSBL,
 	.phy_status             = PHYSTATUS,
 
+	.pipe_clock_rate        = 250000000,
 };
 
 static const struct qmp_phy_cfg sdm845_qmp_pciephy_cfg = {
