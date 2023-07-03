@@ -248,6 +248,13 @@ config QCOM_ICC_BWMON
 	  the fixed bandwidth votes from cpufreq (CPU nodes) thus achieve high
 	  memory throughput even with lower CPU frequencies.
 
+config QCOM_DCC_V2
+	bool "QCOM Data Capture and Compare enigne support"
+	help
+	  This option enables driver for Data Capture and Compare engine. DCC
+	  V2 driver provides interface to configure DCC block and read back
+	  captured data from DCC_V2's internal SRAM
+
 config IPQ_REG_UPDATE
 	bool "QTI, Subsystem register update driver"
 	depends on ARCH_QCOM

@@ -104,6 +104,41 @@ static ssize_t mdt_load_split_segment(void *ptr, const struct elf32_phdr *phdrs,
 }
 
 /**
+ * qcom_mdt_get_file_size() - acquire size of the file region
+ * @fw:		firmware object for the mdt file
+ *
+ * Returns size of the loaded firmware blob, or -EINVAL on failure.
+ */
+ssize_t qcom_mdt_get_file_size(const struct firmware *fw)
+{
+	const struct elf32_phdr *phdrs;
+	const struct elf32_phdr *phdr;
+	const struct elf32_hdr *ehdr;
+	phys_addr_t min_addr = PHYS_ADDR_MAX;
+	phys_addr_t max_addr = 0;
+	int i;
+
+	ehdr = (struct elf32_hdr *)fw->data;
+	phdrs = (struct elf32_phdr *)(ehdr + 1);
+
+	for (i = 0; i < ehdr->e_phnum; i++) {
+		phdr = &phdrs[i];
+
+		if (!mdt_phdr_valid(phdr))
+			continue;
+
+		if (phdr->p_paddr < min_addr)
+			min_addr = phdr->p_paddr;
+
+		if (phdr->p_paddr + phdr->p_filesz > max_addr)
+			max_addr = phdr->p_paddr + phdr->p_filesz;
+	}
+
+	return min_addr < max_addr ? max_addr - min_addr : -EINVAL;
+}
+EXPORT_SYMBOL_GPL(qcom_mdt_get_file_size);
+
+/**
  * qcom_mdt_get_size() - acquire size of the memory region needed to load mdt
  * @fw:		firmware object for the mdt file
  *
@@ -244,6 +279,7 @@ int qcom_mdt_pas_init(struct device *dev, const struct firmware *fw,
 	const struct elf32_hdr *ehdr;
 	phys_addr_t min_addr = PHYS_ADDR_MAX;
 	phys_addr_t max_addr = 0;
+	bool relocate = false;
 	size_t metadata_len;
 	void *metadata;
 	int ret;
@@ -257,6 +293,9 @@ int qcom_mdt_pas_init(struct device *dev, const struct firmware *fw,
 
 		if (!mdt_phdr_valid(phdr))
 			continue;
+
+		if (phdr->p_flags & QCOM_MDT_RELOCATABLE)
+			relocate = true;
 
 		if (phdr->p_paddr < min_addr)
 			min_addr = phdr->p_paddr;
@@ -280,11 +319,13 @@ int qcom_mdt_pas_init(struct device *dev, const struct firmware *fw,
 		goto out;
 	}
 
-	ret = qcom_scm_pas_mem_setup(pas_id, mem_phys, max_addr - min_addr);
-	if (ret) {
-		/* Unable to set up relocation */
-		dev_err(dev, "error %d setting up firmware %s\n", ret, fw_name);
-		goto out;
+	if (relocate) {
+		ret = qcom_scm_pas_mem_setup(pas_id, mem_phys, max_addr - min_addr);
+		if (ret) {
+			/* Unable to set up relocation */
+			dev_err(dev, "error %d setting up firmware %s\n", ret, fw_name);
+			goto out;
+		}
 	}
 
 out:
