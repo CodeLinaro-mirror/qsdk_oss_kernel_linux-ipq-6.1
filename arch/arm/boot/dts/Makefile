@@ -1071,6 +1071,7 @@ dtb-$(CONFIG_ARCH_QCOM) += \
 	ipq9574-db-al02-c1.dtb \
 	ipq9574-db-al02-c2.dtb \
 	ipq9574-db-al02-c3.dtb \
+	devsoc-emulation.dtb \
 	ipq5332-rdp441.dtb \
 	ipq5332-rdp442.dtb \
 	ipq5332-rdp446.dtb \
