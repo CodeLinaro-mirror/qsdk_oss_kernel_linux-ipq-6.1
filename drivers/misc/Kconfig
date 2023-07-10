@@ -496,6 +496,13 @@ config VCPU_STALL_DETECTOR
 
 	  If you do not intend to run this kernel as a guest, say N.
 
+config QSEECOM
+	tristate "QSEECOM Client Driver"
+	default m
+	help
+	 This is a kernel client driver that demonstrates a communication i/f
+	 between userspace and QSEE using Secure Channel Manager (SCM) i/f.
+
 source "drivers/misc/c2port/Kconfig"
 source "drivers/misc/eeprom/Kconfig"
 source "drivers/misc/cb710/Kconfig"
