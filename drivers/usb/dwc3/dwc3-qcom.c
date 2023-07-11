@@ -313,7 +313,16 @@ static void dwc3_qcom_interconnect_exit(struct dwc3_qcom *qcom)
 /* Only usable in contexts where the role can not change. */
 static bool dwc3_qcom_is_host(struct dwc3_qcom *qcom)
 {
-	struct dwc3 *dwc = platform_get_drvdata(qcom->dwc3);
+	struct dwc3 *dwc;
+
+	/*
+	 * FIXME: Fix this layering violation.
+	 */
+	dwc = platform_get_drvdata(qcom->dwc3);
+
+	/* Core driver may not have probed yet. */
+	if (!dwc)
+		return false;
 
 	return dwc->xhci;
 }
@@ -990,12 +999,6 @@ static int dwc3_qcom_remove(struct platform_device *pdev)
 	device_remove_software_node(&qcom->dwc3->dev);
 	of_platform_depopulate(dev);
 
-	for (i = qcom->num_clocks - 1; i >= 0; i--) {
-		clk_disable_unprepare(qcom->clks[i]);
-		clk_put(qcom->clks[i]);
-	}
-	qcom->num_clocks = 0;
-
 	dwc3_qcom_interconnect_exit(qcom);
 	reset_control_assert(qcom->resets);
 
@@ -1010,6 +1013,13 @@ static int dwc3_qcom_remove(struct platform_device *pdev)
 
 	pm_runtime_allow(dev);
 	pm_runtime_disable(dev);
+
+	for (i = qcom->num_clocks - 1; i >= 0; i--) {
+		if (!qcom->is_suspended)
+			clk_disable_unprepare(qcom->clks[i]);
+		clk_put(qcom->clks[i]);
+	}
+	qcom->num_clocks = 0;
 
 	return 0;
 }
