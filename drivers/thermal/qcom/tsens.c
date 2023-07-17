@@ -21,6 +21,9 @@
 #include "../thermal_hwmon.h"
 #include "tsens.h"
 
+#define MAX_TEMP	204000 /* milliCelcius */
+#define MIN_TEMP	0 /* milliCelcius */
+
 /**
  * struct tsens_irq_data - IRQ status and temperature violations
  * @up_viol:        upper threshold violated
@@ -52,6 +55,14 @@ struct tsens_irq_data {
 	u32 crit_thresh;
 	u32 crit_irq_mask;
 	u32 crit_irq_clear;
+};
+
+/* Trips: from very hot to very cold */
+enum tsens_trip_type {
+	TSENS_TRIP_STAGE3 = 0, /* Critical high */
+	TSENS_TRIP_STAGE2,     /* Configurable high */
+	TSENS_TRIP_STAGE1,     /* Configurable low */
+	TSENS_TRIP_NUM,
 };
 
 char *qfprom_read(struct device *dev, const char *cname)
@@ -459,12 +470,9 @@ static irqreturn_t tsens_irq_thread(int irq, void *data)
 {
 	struct tsens_priv *priv = data;
 	struct tsens_irq_data d;
-	bool enable = true, disable = false;
-	unsigned long flags;
-	int temp, ret, i;
+	int i;
 
 	for (i = 0; i < priv->num_sensors; i++) {
-		bool trigger = false;
 		const struct tsens_sensor *s = &priv->sensor[i];
 		u32 hw_id = s->hw_id;
 
@@ -472,52 +480,14 @@ static irqreturn_t tsens_irq_thread(int irq, void *data)
 			continue;
 		if (!tsens_threshold_violated(priv, hw_id, &d))
 			continue;
-		ret = get_temp_tsens_valid(s, &temp);
-		if (ret) {
-			dev_err(priv->dev, "[%u] %s: error reading sensor\n",
-				hw_id, __func__);
-			continue;
-		}
 
-		spin_lock_irqsave(&priv->ul_lock, flags);
-
-		tsens_read_irq_state(priv, hw_id, s, &d);
-
-		if (d.up_viol &&
-		    !masked_irq(hw_id, d.up_irq_mask, tsens_version(priv))) {
-			tsens_set_interrupt(priv, hw_id, UPPER, disable);
-			if (d.up_thresh > temp) {
-				dev_dbg(priv->dev, "[%u] %s: re-arm upper\n",
-					hw_id, __func__);
-				tsens_set_interrupt(priv, hw_id, UPPER, enable);
-			} else {
-				trigger = true;
-				/* Keep irq masked */
-			}
-		} else if (d.low_viol &&
-			   !masked_irq(hw_id, d.low_irq_mask, tsens_version(priv))) {
-			tsens_set_interrupt(priv, hw_id, LOWER, disable);
-			if (d.low_thresh < temp) {
-				dev_dbg(priv->dev, "[%u] %s: re-arm low\n",
-					hw_id, __func__);
-				tsens_set_interrupt(priv, hw_id, LOWER, enable);
-			} else {
-				trigger = true;
-				/* Keep irq masked */
-			}
-		}
-
-		spin_unlock_irqrestore(&priv->ul_lock, flags);
-
-		if (trigger) {
-			dev_dbg(priv->dev, "[%u] %s: TZ update trigger (%d mC)\n",
-				hw_id, __func__, temp);
-			thermal_zone_device_update(s->tzd,
-						   THERMAL_EVENT_UNSPECIFIED);
-		} else {
-			dev_dbg(priv->dev, "[%u] %s: no violation:  %d\n",
-				hw_id, __func__, temp);
-		}
+#ifdef CONFIG_CPU_THERMAL
+		/* If CPUFreq cooling is enabled, then notify Thermal framework */
+		thermal_zone_device_update(s->tzd, THERMAL_EVENT_UNSPECIFIED);
+#else
+		/* Notify user space */
+		schedule_work(&priv->sensor[i].notify_work);
+#endif
 
 		if (tsens_version(priv) < VER_0_1) {
 			/* Constraint: There is only 1 interrupt control register for all
@@ -532,7 +502,182 @@ static irqreturn_t tsens_irq_thread(int irq, void *data)
 	return IRQ_HANDLED;
 }
 
-static int tsens_set_trips(struct thermal_zone_device *tz, int low, int high)
+/**
+ * tsens_combined_irq_thread() - Threaded interrupt handler for combined interrupts
+ * @irq: irq number
+ * @data: tsens controller private data
+ *
+ * Handle the combined interrupt as if it were 2 separate interrupts, so call the
+ * critical handler first and then the up/low one.
+ *
+ * Return: IRQ_HANDLED
+ */
+static irqreturn_t tsens_combined_irq_thread(int irq, void *data)
+{
+	irqreturn_t ret;
+
+	ret = tsens_critical_irq_thread(irq, data);
+	if (ret != IRQ_HANDLED)
+		return ret;
+
+	return tsens_irq_thread(irq, data);
+}
+
+static void notify_uspace_tsens_fn(struct work_struct *work)
+{
+	struct tsens_sensor *s = container_of(work, struct tsens_sensor, notify_work);
+
+	if (!s || !s->tzd)
+		/* Do nothing. TSENS driver has not been registered yet */
+		return;
+
+	sysfs_notify(&s->tzd->device.kobj, NULL, "type");
+}
+
+static int tsens_panic_notify(struct thermal_zone_device *tz)
+{
+	struct tsens_sensor *s = tz->devdata;
+	struct tsens_priv *priv = s->priv;
+	u32 hw_id = s->hw_id;
+	unsigned int try = 0;
+	u32 trdy, valid;
+	unsigned int reg_val = 0;
+
+	if (tsens_version(priv) < VER_0_1) {
+		/* Pre v0.1 IP had a single register for each type of interrupt
+		 * and thresholds
+		 */
+		hw_id = 0;
+	}
+
+	if ((hw_id < 0) || (hw_id > (MAX_SENSOR - 1)))
+		return -EINVAL;
+
+	for(try = 0; try < 100; try++) {
+		try++;
+		regmap_field_read(priv->rf[TRDY], &trdy);
+
+		if (!trdy)
+			continue;
+
+		regmap_field_read(priv->rf[VALID_0 + hw_id], &valid);
+
+		if (!valid)
+			continue;
+
+		regmap_read(priv->tm_map, priv->fields[VALID_0 + hw_id].reg, &reg_val);
+		pr_emerg("The reading for sensor %d is 0x%08x\n", s->hw_id, reg_val);
+		return 0;
+	}
+
+	pr_emerg("Couldn't get reading for sensor %d\n", s->hw_id);
+	return -EINVAL;
+}
+
+static int __maybe_unused tsens_set_trip_activate(void *data, int trip,
+					enum thermal_trip_activation_mode mode)
+{
+	struct thermal_zone_device *tz = (struct thermal_zone_device *)data;
+	struct tsens_sensor *s = tz->devdata;
+	struct tsens_priv *priv = s->priv;
+	u32 hw_id = s->hw_id;
+	enum tsens_trip_type trip_type = trip;
+	unsigned int reg_val;
+
+	if (tsens_version(priv) < VER_0_1) {
+		/* Pre v0.1 IP had a single register for each type of interrupt
+		 * and thresholds
+		 */
+		hw_id = 0;
+	}
+
+	if ((hw_id < 0) || (hw_id > (MAX_SENSOR - 1)))
+		return -EINVAL;
+
+	switch(trip_type) {
+	case TSENS_TRIP_STAGE3:
+		regmap_field_read(priv->rf[CRIT_INT_MASK_0 + hw_id], &reg_val);
+		if (mode == THERMAL_TRIP_ACTIVATION_DISABLED)
+			reg_val = 1;
+		else
+			reg_val = 0;
+		regmap_field_write(priv->rf[CRIT_INT_MASK_0 + hw_id], reg_val);
+		break;
+	case TSENS_TRIP_STAGE2:
+		regmap_field_read(priv->rf[UP_INT_MASK_0 + hw_id], &reg_val);
+		if (mode == THERMAL_TRIP_ACTIVATION_DISABLED)
+			reg_val = 1;
+		else
+			reg_val = 0;
+		regmap_field_write(priv->rf[UP_INT_MASK_0 + hw_id], reg_val);
+		break;
+	case TSENS_TRIP_STAGE1:
+		regmap_field_read(priv->rf[LOW_INT_MASK_0 + hw_id], &reg_val);
+		if (mode == THERMAL_TRIP_ACTIVATION_DISABLED)
+			reg_val = 1;
+		else
+			reg_val = 0;
+		regmap_field_write(priv->rf[LOW_INT_MASK_0 + hw_id], reg_val);
+		break;
+	default:
+		return -EINVAL;
+	}
+
+	return 0;
+}
+
+static int __maybe_unused tsens_set_trip_temp(struct thermal_zone_device *tz, int trip, int temperature)
+{
+	struct tsens_sensor *s = tz->devdata;
+	struct tsens_priv *priv = s->priv;
+	enum tsens_trip_type trip_type = trip;
+	u32 th_cri, th_hi, th_lo;
+	u32 hw_id = s->hw_id;
+	int temp_hw; /* temp value in hardware unit */
+
+	if (tsens_version(priv) < VER_0_1) {
+		/* Pre v0.1 IP had a single register for each type of interrupt
+		 * and thresholds
+		 */
+		hw_id = 0;
+	}
+
+	if ((temperature < MIN_TEMP) || (temperature > MAX_TEMP))
+		return -EINVAL;
+
+	if ((hw_id < 0) || (hw_id > (MAX_SENSOR - 1)))
+		return -EINVAL;
+
+	regmap_field_read(priv->rf[UP_THRESH_0 + hw_id], &th_hi);
+	regmap_field_read(priv->rf[LOW_THRESH_0 + hw_id], &th_lo);
+	regmap_field_read(priv->rf[CRIT_THRESH_0 + hw_id], &th_cri);
+
+	temp_hw = tsens_mC_to_hw(s, temperature);
+
+	switch(trip_type) {
+	case TSENS_TRIP_STAGE3:
+		if (temp_hw < th_hi)
+			return -EINVAL;
+		regmap_field_write(priv->rf[CRIT_THRESH_0 + hw_id], temp_hw);
+		break;
+	case TSENS_TRIP_STAGE2:
+		if ((temp_hw <= th_lo) || (temp_hw >= th_cri))
+			return -EINVAL;
+		regmap_field_write(priv->rf[UP_THRESH_0 + hw_id], temp_hw);
+		break;
+	case TSENS_TRIP_STAGE1:
+		if (temp_hw >= th_hi)
+			return -EINVAL;
+		regmap_field_write(priv->rf[LOW_THRESH_0 + hw_id], temp_hw);
+		break;
+	default:
+		return -EINVAL;
+	}
+
+	return 0;
+}
+
+static int __maybe_unused tsens_set_trips(struct thermal_zone_device *tz, int low, int high)
 {
 	struct tsens_sensor *s = tz->devdata;
 	struct tsens_priv *priv = s->priv;
@@ -552,8 +697,8 @@ static int tsens_set_trips(struct thermal_zone_device *tz, int low, int high)
 	dev_dbg(dev, "[%u] %s: proposed thresholds: (%d:%d)\n",
 		hw_id, __func__, low, high);
 
-	cl_high = clamp_val(high, -40000, 120000);
-	cl_low  = clamp_val(low, -40000, 120000);
+	cl_high = clamp_val(high, priv->feat->trip_min_temp, priv->feat->trip_max_temp);
+	cl_low  = clamp_val(low, priv->feat->trip_min_temp, priv->feat->trip_max_temp);
 
 	high_val = tsens_mC_to_hw(s, cl_high);
 	low_val  = tsens_mC_to_hw(s, cl_low);
@@ -704,21 +849,14 @@ DEFINE_SHOW_ATTRIBUTE(dbg_sensors);
 static void tsens_debug_init(struct platform_device *pdev)
 {
 	struct tsens_priv *priv = platform_get_drvdata(pdev);
-	struct dentry *root, *file;
 
-	root = debugfs_lookup("tsens", NULL);
-	if (!root)
+	priv->debug_root = debugfs_lookup("tsens", NULL);
+	if (!priv->debug_root)
 		priv->debug_root = debugfs_create_dir("tsens", NULL);
-	else
-		priv->debug_root = root;
-
-	file = debugfs_lookup("version", priv->debug_root);
-	if (!file)
-		debugfs_create_file("version", 0444, priv->debug_root,
-				    pdev, &dbg_version_fops);
 
 	/* A directory for each instance of the TSENS IP */
 	priv->debug = debugfs_create_dir(dev_name(&pdev->dev), priv->debug_root);
+	debugfs_create_file("version", 0444, priv->debug, pdev, &dbg_version_fops);
 	debugfs_create_file("sensors", 0444, priv->debug, pdev, &dbg_sensors_fops);
 }
 #else
@@ -828,7 +966,7 @@ int __init init_common(struct tsens_priv *priv)
 	ret = regmap_field_read(priv->rf[TSENS_EN], &enabled);
 	if (ret)
 		goto err_put_device;
-	if (!enabled) {
+	if (!enabled && (tsens_version(priv) != VER_2_X_NO_RPM)) {
 		dev_err(dev, "%s: device not enabled\n", __func__);
 		ret = -ENODEV;
 		goto err_put_device;
@@ -840,6 +978,12 @@ int __init init_common(struct tsens_priv *priv)
 		ret = PTR_ERR(priv->rf[SENSOR_EN]);
 		goto err_put_device;
 	}
+
+	for(i = 0; i < priv->num_sensors; i++) {
+		priv->sensor[i].status = priv->fields[LAST_TEMP_0 + i].reg;
+		INIT_WORK(&priv->sensor[i].notify_work, notify_uspace_tsens_fn);
+	}
+
 	priv->rf[INT_EN] = devm_regmap_field_alloc(dev, priv->tm_map,
 						   priv->fields[INT_EN]);
 	if (IS_ERR(priv->rf[INT_EN])) {
@@ -918,8 +1062,6 @@ int __init init_common(struct tsens_priv *priv)
 	if (tsens_version(priv) >= VER_0_1)
 		tsens_enable_irq(priv);
 
-	tsens_debug_init(op);
-
 err_put_device:
 	put_device(&op->dev);
 	return ret;
@@ -960,6 +1102,15 @@ static const struct of_device_id tsens_table[] = {
 		.compatible = "qcom,ipq8064-tsens",
 		.data = &data_8960,
 	}, {
+		.compatible = "qcom,ipq8074-tsens",
+		.data = &data_ipq8074,
+	}, {
+		.compatible = "qcom,ipq5332-tsens",
+		.data = &data_ipq5332,
+	}, {
+		.compatible = "qcom,ipq9574-tsens",
+		.data = &data_ipq8074,
+	}, {
 		.compatible = "qcom,mdm9607-tsens",
 		.data = &data_9607,
 	}, {
@@ -996,7 +1147,13 @@ MODULE_DEVICE_TABLE(of, tsens_table);
 
 static const struct thermal_zone_device_ops tsens_of_ops = {
 	.get_temp = tsens_get_temp,
+	.panic_notify = tsens_panic_notify,
+#ifdef CONFIG_CPU_THERMAL
 	.set_trips = tsens_set_trips,
+#else
+	.set_trip_temp = tsens_set_trip_temp,
+	.set_trip_activate = tsens_set_trip_activate,
+#endif
 };
 
 static int tsens_register_irq(struct tsens_priv *priv, char *irqname,
@@ -1074,13 +1231,18 @@ static int tsens_register(struct tsens_priv *priv)
 				   tsens_mC_to_hw(priv->sensor, 0));
 	}
 
-	ret = tsens_register_irq(priv, "uplow", tsens_irq_thread);
-	if (ret < 0)
-		return ret;
+	if (priv->feat->combo_int) {
+		ret = tsens_register_irq(priv, "combined",
+					 tsens_combined_irq_thread);
+	} else {
+		ret = tsens_register_irq(priv, "uplow", tsens_irq_thread);
+		if (ret < 0)
+			return ret;
 
-	if (priv->feat->crit_int)
-		ret = tsens_register_irq(priv, "critical",
-					 tsens_critical_irq_thread);
+		if (priv->feat->crit_int)
+			ret = tsens_register_irq(priv, "critical",
+						 tsens_critical_irq_thread);
+	}
 
 	return ret;
 }
@@ -1156,7 +1318,11 @@ static int tsens_probe(struct platform_device *pdev)
 		}
 	}
 
-	return tsens_register(priv);
+	ret = tsens_register(priv);
+	if (!ret)
+		tsens_debug_init(pdev);
+
+	return ret;
 }
 
 static int tsens_remove(struct platform_device *pdev)
