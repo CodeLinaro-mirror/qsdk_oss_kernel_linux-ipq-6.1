@@ -36,6 +36,7 @@ struct mdiobb_ctrl {
 	unsigned int override_op_c22;
 	u8 op_c22_read;
 	u8 op_c22_write;
+	void (*preinit)(struct mii_bus *bus);
 };
 
 int mdiobb_read(struct mii_bus *bus, int phy, int reg);
