@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /* Copyright (c) 2010-2015, 2018-2019 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2023, Qualcomm Innovation Center, Inc. All rights reserved.
  * Copyright (C) 2015 Linaro Ltd.
  */
 #ifndef __QCOM_SCM_H
@@ -14,6 +15,12 @@
 #define QCOM_SCM_CPU_PWR_DOWN_L2_OFF	0x1
 #define QCOM_SCM_HDCP_MAX_REQ_CNT	5
 
+#define QTI_TZ_DIAG_LOG_ENCR_ID		0x0
+#define QTI_TZ_QSEE_LOG_ENCR_ID		0x1
+#define QTI_TZ_LOG_NO_UPDATE		-6
+#define QTI_SCM_SVC_FUSE		0x8
+#define QTI_TRYBIT			BIT(12)
+
 struct qcom_scm_hdcp_req {
 	u32 addr;
 	u32 val;
@@ -22,6 +29,12 @@ struct qcom_scm_hdcp_req {
 struct qcom_scm_vmperm {
 	int vmid;
 	int perm;
+};
+
+struct fuse_blow {
+	dma_addr_t address;
+	size_t size;
+	unsigned long *status;
 };
 
 enum qcom_scm_ocmem_client {
@@ -61,6 +74,23 @@ enum qcom_scm_ice_cipher {
 #define QCOM_SCM_PERM_RW (QCOM_SCM_PERM_READ | QCOM_SCM_PERM_WRITE)
 #define QCOM_SCM_PERM_RWX (QCOM_SCM_PERM_RW | QCOM_SCM_PERM_EXEC)
 
+#define FUSEPROV_SUCCESS           0x0
+#define QCOM_SCM_SVC_FUSE          0x8
+#define FUSEPROV_INVALID_HASH      0x9
+#define FUSEPROV_SECDAT_LOCK_BLOWN 0xB
+#define QCOM_KERNEL_AUTH_CMD       0x15
+#define TZ_BLOW_FUSE_SECDAT        0x20
+#define QCOM_KERNEL_META_AUTH_CMD  0x23
+
+extern int qcom_fuseipq_scm_call(u32 svc_id, u32 cmd_id,
+				 void *cmd_buf, size_t size);
+extern int qcom_qfprom_write_version(uint32_t sw_type,
+				     uint32_t value,
+				     uint32_t qfprom_ret_ptr);
+extern int qcom_qfprom_read_version(uint32_t sw_type,
+				    uint32_t value,
+				    uint32_t qfprom_ret_ptr);
+extern int qcom_qfprom_show_authenticate(void);
 extern bool qcom_scm_is_available(void);
 
 extern int qcom_scm_set_cold_boot_addr(void *entry);
@@ -80,6 +110,7 @@ extern int qcom_scm_pas_init_image(u32 peripheral, const void *metadata,
 void qcom_scm_pas_metadata_release(struct qcom_scm_pas_metadata *ctx);
 extern int qcom_scm_pas_mem_setup(u32 peripheral, phys_addr_t addr,
 				  phys_addr_t size);
+extern long qcom_scm_is_feature_available(u32 feature_id);
 extern int qcom_scm_pas_auth_and_reset(u32 peripheral);
 extern int qcom_scm_pas_shutdown(u32 peripheral);
 extern bool qcom_scm_pas_supported(u32 peripheral);
@@ -126,5 +157,25 @@ extern int qcom_scm_lmh_dcvsh(u32 payload_fn, u32 payload_reg, u32 payload_val,
 			      u64 limit_node, u32 node_id, u64 version);
 extern int qcom_scm_lmh_profile_change(u32 profile_id);
 extern bool qcom_scm_lmh_dcvsh_available(void);
+extern int qti_seccrypt_clearkey(void);
+extern int qti_sec_crypt(void *buf, int size);
+extern int qti_set_qcekey_sec(void *buf, int size);
 
+extern int qti_scm_is_tz_log_encrypted(void);
+extern int qti_scm_get_encrypted_tz_log(void *ker_buf, u32 buf_len, u32 log_id);
+extern int qti_scm_is_tz_log_encryption_supported(void);
+extern int qti_scm_tz_log(void *ker_buf, u32 buf_len);
+extern int qti_scm_hvc_log(void *ker_buf, u32 buf_len);
+extern int qti_qfprom_show_authenticate(void);
+extern int qti_scm_get_smmustate(void);
+
+extern bool qcom_scm_sec_auth_available(unsigned int scm_cmd_id);
+extern int qcom_sec_upgrade_auth(unsigned int scm_cmd_id,
+				 unsigned int sw_type, unsigned int img_size,
+				 unsigned int load_addr);
+extern int qcom_sec_upgrade_auth_meta_data(unsigned int scm_cmd_id,unsigned int sw_type,
+					   unsigned int img_size,unsigned int load_addr,
+					   void* hash_addr,unsigned int hash_size);
+extern int qcom_scm_enable_try_mode(void);
+extern int qcom_read_dload_reg(void);
 #endif

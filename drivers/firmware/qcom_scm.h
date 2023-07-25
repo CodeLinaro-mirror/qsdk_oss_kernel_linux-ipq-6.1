@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /* Copyright (c) 2010-2015,2019 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2023, Qualcomm Innovation Center, Inc. All rights reserved.
  */
 #ifndef __QCOM_SCM_INT_H
 #define __QCOM_SCM_INT_H
@@ -74,6 +75,9 @@ extern int scm_legacy_call_atomic(struct device *dev,
 extern int scm_legacy_call(struct device *dev, const struct qcom_scm_desc *desc,
 			   struct qcom_scm_res *res);
 
+extern int __qti_scm_tz_hvc_log(struct device *dev, u32 svc_id, u32 cmd_id,
+                                void *ker_buf, u32 buf_len);
+
 #define QCOM_SCM_SVC_BOOT		0x01
 #define QCOM_SCM_BOOT_SET_ADDR		0x01
 #define QCOM_SCM_BOOT_TERMINATE_PC	0x02
@@ -85,14 +89,26 @@ extern int scm_legacy_call(struct device *dev, const struct qcom_scm_desc *desc,
 #define QCOM_SCM_BOOT_MC_FLAG_AARCH64	BIT(0)
 #define QCOM_SCM_BOOT_MC_FLAG_COLDBOOT	BIT(1)
 #define QCOM_SCM_BOOT_MC_FLAG_WARMBOOT	BIT(2)
+#define QCOM_SCM_IS_TZ_LOG_ENCRYPTED	0xb
+#define QCOM_SCM_GET_TZ_LOG_ENCRYPTED	0xc
 
 #define QCOM_SCM_SVC_PIL		0x02
 #define QCOM_SCM_PIL_PAS_INIT_IMAGE	0x01
+#define QCOM_SCM_PAS_INIT_IMAGE_V2_CMD  0x1a
 #define QCOM_SCM_PIL_PAS_MEM_SETUP	0x02
 #define QCOM_SCM_PIL_PAS_AUTH_AND_RESET	0x05
 #define QCOM_SCM_PIL_PAS_SHUTDOWN	0x06
 #define QCOM_SCM_PIL_PAS_IS_SUPPORTED	0x07
+#define QCOM_QFPROM_IS_AUTHENTICATE_CMD 0x07
+#define QCOM_QFPROM_ROW_READ_CMD        0x08
+#define QCOM_QFPROM_ROW_WRITE_CMD       0x09
+#define QCOM_SCM_SVC_SEC_AUTH           0x01
 #define QCOM_SCM_PIL_PAS_MSS_RESET	0x0a
+
+#define QCOM_SCM_SVC_UTIL		0x03
+#define QCOM_SCM_CMD_SET_REGSAVE	0x02
+#define QCOM_SCM_CDUMP_FEATURE_ID	0x4
+#define QCOM_SCM_CDUMP_PAGE_SIZE	0x80000
 
 #define QCOM_SCM_SVC_IO			0x05
 #define QCOM_SCM_IO_READ		0x01
@@ -100,6 +116,10 @@ extern int scm_legacy_call(struct device *dev, const struct qcom_scm_desc *desc,
 
 #define QCOM_SCM_SVC_INFO		0x06
 #define QCOM_SCM_INFO_IS_CALL_AVAIL	0x01
+#define QCOM_SCM_IS_FEATURE_AVAIL	0x03
+#define QTI_SCM_TZ_DIAG_CMD		0x2
+#define QTI_SCM_HVC_DIAG_CMD		0x7
+#define QTI_SCM_SMMUSTATE_CMD		0x19
 
 #define QCOM_SCM_SVC_MP				0x0c
 #define QCOM_SCM_MP_RESTORE_SEC_CFG		0x02
@@ -134,6 +154,17 @@ extern int scm_legacy_call(struct device *dev, const struct qcom_scm_desc *desc,
 #define QCOM_SCM_PD_LOAD_V2_CMD_ID		0x19
 #define QCOM_SCM_INT_RAD_PWR_UP_CMD_ID		0x17
 #define QCOM_SCM_INT_RAD_PWR_DN_CMD_ID		0x18
+
+/*
+ * QCOM_SCM_QCE_SVC - commands related to secure key for secure nand
+ */
+#define QCOM_SCM_QCE_CMD		0x3
+#define QCOM_SCM_QCE_CRYPTO_SIP		0xA
+#define QCOM_SCM_QCE_ENC_DEC_CMD	0xB
+#define QCOM_SCM_SECCRYPT_CLRKEY_CMD	0xC
+extern int __qti_sec_crypt(struct device *dev, void *confBuf, int size);
+extern int __qti_seccrypt_clearkey(struct device *dev);
+extern int __qti_set_qcekey_sec(struct device *dev, void *confBuf, int size);
 
 /* common error codes */
 #define QCOM_SCM_V2_EBUSY	-12

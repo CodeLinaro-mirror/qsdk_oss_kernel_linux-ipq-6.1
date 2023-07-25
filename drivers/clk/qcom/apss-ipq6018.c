@@ -9,8 +9,11 @@
 #include <linux/clk-provider.h>
 #include <linux/regmap.h>
 #include <linux/module.h>
+#include <linux/clk.h>
+#include <linux/soc/qcom/smem.h>
 
 #include <dt-bindings/clock/qcom,apss-ipq.h>
+#include <dt-bindings/arm/qcom,ids.h>
 
 #include "common.h"
 #include "clk-regmap.h"
@@ -20,16 +23,19 @@
 
 enum {
 	P_XO,
+	P_GPLL0,
 	P_APSS_PLL_EARLY,
 };
 
 static const struct clk_parent_data parents_apcs_alias0_clk_src[] = {
 	{ .fw_name = "xo" },
+	{ .fw_name = "gpll0" },
 	{ .fw_name = "pll" },
 };
 
 static const struct parent_map parents_apcs_alias0_clk_src_map[] = {
 	{ P_XO, 0 },
+	{ P_GPLL0, 4 },
 	{ P_APSS_PLL_EARLY, 5 },
 };
 
@@ -81,15 +87,61 @@ static const struct qcom_cc_desc apss_ipq6018_desc = {
 	.num_clks = ARRAY_SIZE(apss_ipq6018_clks),
 };
 
+static int cpu_clk_notifier_fn(struct notifier_block *nb, unsigned long action,
+				void *data)
+{
+	int err;
+
+	if (action == PRE_RATE_CHANGE)
+		err = clk_rcg2_mux_closest_ops.set_parent(&apcs_alias0_clk_src.clkr.hw,
+						P_GPLL0);
+
+	if (action == POST_RATE_CHANGE)
+		err = clk_rcg2_mux_closest_ops.set_parent(&apcs_alias0_clk_src.clkr.hw,
+						P_APSS_PLL_EARLY);
+
+	return notifier_from_errno(err);
+}
+
+static struct notifier_block cpu_clk_notifier = {
+	.notifier_call = cpu_clk_notifier_fn,
+};
+
 static int apss_ipq6018_probe(struct platform_device *pdev)
 {
 	struct regmap *regmap;
+	int ret;
+	u32 soc_id;
+
+	ret = qcom_smem_get_soc_id(&soc_id);
+	if (ret)
+		return ret;
 
 	regmap = dev_get_regmap(pdev->dev.parent, NULL);
 	if (!regmap)
 		return -ENODEV;
 
-	return qcom_cc_really_probe(pdev, &apss_ipq6018_desc, regmap);
+	ret = qcom_cc_really_probe(pdev, &apss_ipq6018_desc, regmap);
+	if (ret)
+		return ret;
+
+	switch(soc_id) {
+		/*
+		 * Only below variants of IPQ53xx supports scaling
+		 */
+		case QCOM_ID_IPQ5332:
+		case QCOM_ID_IPQ5322:
+		case QCOM_ID_IPQ5300:
+			ret = clk_notifier_register(apcs_alias0_clk_src.clkr.hw.clk,
+							&cpu_clk_notifier);
+			if (ret)
+				return ret;
+			break;
+		default:
+			break;
+	}
+
+	return 0;
 }
 
 static struct platform_driver apss_ipq6018_driver = {

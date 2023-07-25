@@ -1389,8 +1389,8 @@ route_lookup:
 	 */
 	max_headroom = LL_RESERVED_SPACE(dst->dev) + sizeof(struct ipv6hdr)
 			+ dst->header_len + t->hlen;
-	if (max_headroom > dev->needed_headroom)
-		dev->needed_headroom = max_headroom;
+	if (max_headroom > READ_ONCE(dev->needed_headroom))
+		WRITE_ONCE(dev->needed_headroom, max_headroom);
 
 	err = ip6_tnl_encap(skb, t, &proto, fl6);
 	if (err)
@@ -2405,6 +2405,26 @@ struct net *ip6_tnl_get_link_net(const struct net_device *dev)
 	return tunnel->net;
 }
 EXPORT_SYMBOL(ip6_tnl_get_link_net);
+
+bool ip6_tunnel_is_fallback_dev(struct net_device *dev)
+{
+	struct net *net;
+	struct ip6_tnl_net *ip6n;
+	struct net_device *fb_tnl_dev;
+
+	net = dev_net(dev);
+	if (!net)
+		return false;
+
+	ip6n = net_generic(net, ip6_tnl_net_id);
+	if (!ip6n)
+		return false;
+
+	fb_tnl_dev = ip6n->fb_tnl_dev;
+
+	return (fb_tnl_dev == dev);
+}
+EXPORT_SYMBOL(ip6_tunnel_is_fallback_dev);
 
 static const struct nla_policy ip6_tnl_policy[IFLA_IPTUN_MAX + 1] = {
 	[IFLA_IPTUN_LINK]		= { .type = NLA_U32 },

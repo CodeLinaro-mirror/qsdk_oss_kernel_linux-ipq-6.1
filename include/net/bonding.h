@@ -94,6 +94,8 @@
 
 #define BOND_TLS_FEATURES (NETIF_F_HW_TLS_TX | NETIF_F_HW_TLS_RX)
 
+extern struct bond_cb __rcu *bond_cb;
+
 #ifdef CONFIG_NET_POLL_CONTROLLER
 extern atomic_t netpoll_block_tx;
 
@@ -223,6 +225,7 @@ struct bonding {
 	struct   bond_up_slave __rcu *usable_slaves;
 	struct   bond_up_slave __rcu *all_slaves;
 	bool     force_primary;
+	bool     notifier_ctx;
 	s32      slave_cnt; /* never change this value outside the attach/detach wrappers */
 	int     (*recv_probe)(const struct sk_buff *, struct bonding *,
 			      struct slave *);
@@ -235,7 +238,7 @@ struct bonding {
 	 */
 	spinlock_t mode_lock;
 	spinlock_t stats_lock;
-	u8	 send_peer_notif;
+	u32	 send_peer_notif;
 	u8       igmp_retrans;
 #ifdef CONFIG_PROC_FS
 	struct   proc_dir_entry *proc_entry;
@@ -264,6 +267,7 @@ struct bonding {
 	spinlock_t ipsec_lock;
 #endif /* CONFIG_XFRM_OFFLOAD */
 	struct bpf_prog *xdp_prog;
+	u32 id;
 };
 
 #define bond_slave_get_rcu(dev) \
@@ -687,6 +691,11 @@ struct bond_vlan_tag *bond_verify_device_path(struct net_device *start_dev,
 					      int level);
 int bond_update_slave_arr(struct bonding *bond, struct slave *skipslave);
 void bond_slave_arr_work_rearm(struct bonding *bond, unsigned long delay);
+uint32_t bond_xmit_hash_without_skb(uint8_t *src_mac, uint8_t *dst_mac,
+				    void *psrc, void *pdst, uint16_t protocol,
+				    struct net_device *bond_dev,
+				    __be16 *layer4hdr);
+
 void bond_work_init_all(struct bonding *bond);
 
 #ifdef CONFIG_PROC_FS
@@ -765,13 +774,17 @@ static inline int bond_get_targets_ip(__be32 *targets, __be32 ip)
 #if IS_ENABLED(CONFIG_IPV6)
 static inline int bond_get_targets_ip6(struct in6_addr *targets, struct in6_addr *ip)
 {
+	struct in6_addr mcaddr;
 	int i;
 
-	for (i = 0; i < BOND_MAX_NS_TARGETS; i++)
-		if (ipv6_addr_equal(&targets[i], ip))
+	for (i = 0; i < BOND_MAX_NS_TARGETS; i++) {
+		addrconf_addr_solict_mult(&targets[i], &mcaddr);
+		if ((ipv6_addr_equal(&targets[i], ip)) ||
+		    (ipv6_addr_equal(&mcaddr, ip)))
 			return i;
 		else if (ipv6_addr_any(&targets[i]))
 			break;
+	}
 
 	return -1;
 }
@@ -795,5 +808,18 @@ static inline netdev_tx_t bond_tx_drop(struct net_device *dev, struct sk_buff *s
 	dev_kfree_skb_any(skb);
 	return NET_XMIT_DROP;
 }
+
+struct bond_cb {
+	void (*bond_cb_link_up)(struct net_device *slave);
+	void (*bond_cb_link_down)(struct net_device *slave);
+	void (*bond_cb_enslave)(struct net_device *slave);
+	void (*bond_cb_release)(struct net_device *slave);
+	void (*bond_cb_delete_by_slave)(struct net_device *slave);
+	void (*bond_cb_delete_by_mac)(uint8_t *mac_addr);
+};
+
+extern int bond_register_cb(struct bond_cb *cb);
+extern void bond_unregister_cb(void);
+extern int bond_get_id(struct net_device *bond_dev);
 
 #endif /* _NET_BONDING_H */

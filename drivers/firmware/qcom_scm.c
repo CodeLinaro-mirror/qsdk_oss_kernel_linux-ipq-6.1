@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /* Copyright (c) 2010,2015,2019 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2023, Qualcomm Innovation Center, Inc. All rights reserved.
  * Copyright (C) 2015 Linaro Ltd.
  */
 #include <linux/platform_device.h>
@@ -40,6 +41,8 @@ struct qcom_scm {
 	int scm_vote_count;
 
 	u64 dload_mode_addr;
+	u32 hvc_log_cmd_id;
+	u32 smmu_state_cmd_id;
 };
 
 struct qcom_scm_current_perm_info {
@@ -339,6 +342,34 @@ static int qcom_scm_set_boot_addr_mc(void *entry, unsigned int flags)
 }
 
 /**
+ * qcom_scm_regsave() - pass a buffer to TZ for saving CPU register context
+ * @buf:	Allocated buffer which is used to store the cpu context
+ * @size:       size of the buffer
+ *
+ * Return: 0 on success.
+ *
+ * Upon successful return, TZ Dump the CPU register context in the
+ * buffer on crash
+ */
+int qcom_scm_regsave(void *buf, u32 size)
+{
+	int ret;
+	struct qcom_scm_desc desc = {
+		.svc = QCOM_SCM_SVC_UTIL,
+		.cmd = QCOM_SCM_CMD_SET_REGSAVE,
+		.arginfo = QCOM_SCM_ARGS(2, QCOM_SCM_RW, QCOM_SCM_VAL),
+		.args[0] = (u64)virt_to_phys(buf),
+		.args[1] = size,
+		.owner = ARM_SMCCC_OWNER_SIP,
+	};
+	struct qcom_scm_res res;
+
+	ret = qcom_scm_call(__scm->dev, &desc, &res);
+
+	return ret ? : res.result[0];
+}
+
+/**
  * qcom_scm_set_warm_boot_addr() - Set the warm boot address for all cpus
  * @entry: Entry point function for the cpus
  *
@@ -422,6 +453,62 @@ static int __qcom_scm_set_dload_mode(struct device *dev, u32 val, bool enable)
 				val & ~(QCOM_SCM_BOOT_SET_DLOAD_MODE);
 
 	return qcom_scm_call_atomic(__scm->dev, &desc, NULL);
+}
+
+/**
+`* qcom_scm_is_feature_available() - Check if a given feature is enabled by TZ,
+ * 				     and its version if enabled.
+ * @feature_id: ID of the feature to check in TZ for availablilty/version.
+ *
+ * Return: 0 on success and the version of the feature in result.
+ *
+ * TZ returns 0xFFFFFFFF if this smc call is not supported or
+ * if smc call supported but feature ID not supported
+ */
+long  qcom_scm_is_feature_available(u32 feature_id)
+{
+	long ret;
+	struct qcom_scm_res res;
+	struct qcom_scm_desc desc = {
+		.svc = QCOM_SCM_SVC_INFO,
+		.cmd = QCOM_SCM_IS_FEATURE_AVAIL,
+		.arginfo = QCOM_SCM_ARGS(1),
+		.args[0] = feature_id,
+		.owner = ARM_SMCCC_OWNER_SIP,
+	};
+
+	ret = qcom_scm_call(__scm->dev, &desc, &res);
+
+	return ret ? : res.result[0];
+}
+EXPORT_SYMBOL(qcom_scm_is_feature_available);
+
+static void qcom_scm_set_cpu_regsave(void)
+{
+	long ret;
+	void *buf;
+
+	ret = qcom_scm_is_feature_available(QCOM_SCM_CDUMP_FEATURE_ID);
+	if (ret >= 0) {
+		dev_info(__scm->dev,
+			"Crash Dump feature ID is %lx\n", ret);
+		return;
+	}
+	dev_info(__scm->dev,
+		"TZ doesn't support the static buffer to save CPU context");
+
+	/* Fallback to old method to save CPU context register */
+	buf = (void *) __get_free_pages(GFP_KERNEL,
+			get_order(QCOM_SCM_CDUMP_PAGE_SIZE));
+	if (!buf) {
+		dev_err(__scm->dev,
+			"Failed to allocate buffer memory\n");
+		return;
+	}
+	ret = qcom_scm_regsave(buf, QCOM_SCM_CDUMP_PAGE_SIZE);
+	if (ret) {
+		dev_err(__scm->dev, "Setting CPU context save buffer failed\n");
+	}
 }
 
 static void qcom_scm_set_download_mode(bool enable)
@@ -510,6 +597,14 @@ int qcom_scm_pas_init_image(u32 peripheral, const void *metadata, size_t size,
 		return ret;
 
 	desc.args[1] = mdata_phys;
+
+	if (__qcom_scm_is_call_available(__scm->dev, QCOM_SCM_SVC_PIL,
+					 QCOM_SCM_PAS_INIT_IMAGE_V2_CMD)) {
+		desc.cmd = QCOM_SCM_PAS_INIT_IMAGE_V2_CMD;
+		desc.arginfo =
+			QCOM_SCM_ARGS(3, QCOM_SCM_VAL, QCOM_SCM_RW, QCOM_SCM_VAL);
+		desc.args[2] = size;
+	}
 
 	ret = qcom_scm_call(__scm->dev, &desc, &res);
 
@@ -1449,6 +1544,133 @@ static int qcom_scm_find_dload_address(struct device *dev, u64 *addr)
 	return 0;
 }
 
+/*
+ * qcom_set_qcekey_sec() - Configure key securely
+ */
+int qti_set_qcekey_sec(void *buf, int size)
+{
+	return __qti_set_qcekey_sec(__scm->dev, buf, size);
+}
+EXPORT_SYMBOL(qti_set_qcekey_sec);
+
+int qti_sec_crypt(void *buf, int size)
+{
+	return __qti_sec_crypt(__scm->dev, buf, size);
+}
+EXPORT_SYMBOL(qti_sec_crypt);
+
+int qti_seccrypt_clearkey(void)
+{
+	return __qti_seccrypt_clearkey(__scm->dev);
+}
+EXPORT_SYMBOL(qti_seccrypt_clearkey);
+
+int __qti_set_qcekey_sec(struct device *dev, void *confBuf, int size)
+{
+	int ret;
+	dma_addr_t conf_phys;
+	struct qcom_scm_res res;
+	struct qcom_scm_desc desc = {
+		.svc = QCOM_SCM_QCE_CRYPTO_SIP,
+		.cmd = QCOM_SCM_QCE_CMD,
+		.arginfo = QCOM_SCM_ARGS(1, QCOM_SCM_RO),
+		.owner = ARM_SMCCC_OWNER_SIP,
+	};
+
+	conf_phys = dma_map_single(dev, confBuf, size, DMA_TO_DEVICE);
+	ret = dma_mapping_error(dev, conf_phys);
+	if (ret) {
+		dev_err(dev, "Allocation fail for conf buffer\n");
+		return -ENOMEM;
+	}
+	desc.args[1] = (u64)conf_phys;
+	desc.args[2] = size;
+
+	ret = qcom_scm_call(__scm->dev, &desc, &res);
+
+	dma_unmap_single(dev, conf_phys, size, DMA_TO_DEVICE);
+	return ret ? : res.result[0];
+}
+
+int __qti_sec_crypt(struct device *dev, void *confBuf, int size)
+{
+	int ret;
+	dma_addr_t conf_phys;
+	struct qcom_scm_res res;
+	struct qcom_scm_desc desc = {
+		.svc = QCOM_SCM_QCE_CRYPTO_SIP,
+		.cmd = QCOM_SCM_QCE_ENC_DEC_CMD,
+		.arginfo = QCOM_SCM_ARGS(2, QCOM_SCM_RW, QCOM_SCM_VAL),
+		.owner = ARM_SMCCC_OWNER_SIP,
+	};
+
+	conf_phys = dma_map_single(dev, confBuf, size, DMA_TO_DEVICE);
+	ret = dma_mapping_error(dev, conf_phys);
+	if (ret) {
+		dev_err(dev, "Allocation fail for conf buffer\n");
+		return -ENOMEM;
+	}
+	desc.args[1] = (u64)conf_phys;
+	desc.args[2] = size;
+
+	return qcom_scm_call(__scm->dev, &desc, &res);
+
+	dma_unmap_single(dev, conf_phys, size, DMA_TO_DEVICE);
+	return ret ? : res.result[0];
+}
+
+int __qti_seccrypt_clearkey(struct device *dev)
+{
+	int ret;
+	struct qcom_scm_desc desc = {
+		.svc = QCOM_SCM_QCE_CRYPTO_SIP,
+		.cmd = QCOM_SCM_SECCRYPT_CLRKEY_CMD,
+		.arginfo = QCOM_SCM_ARGS(0, QCOM_SCM_VAL),
+		.owner = ARM_SMCCC_OWNER_SIP,
+	};
+	struct qcom_scm_res res;
+
+	ret = qcom_scm_call(__scm->dev, &desc, &res);
+
+	return ret ? : res.result[0];
+}
+
+int qcom_scm_enable_try_mode(void)
+{
+	int ret;
+	u32 val;
+	struct qcom_scm_res res;
+	struct qcom_scm_desc desc = {0};
+
+	val = qcom_read_dload_reg();
+	desc.svc = QCOM_SCM_SVC_IO;
+	desc.cmd = QCOM_SCM_IO_WRITE;
+	desc.arginfo = QCOM_SCM_ARGS(2, QCOM_SCM_VAL, QCOM_SCM_VAL);
+	desc.args[0] = __scm->dload_mode_addr;
+	desc.args[1] = val | QTI_TRYBIT;
+	desc.owner = ARM_SMCCC_OWNER_SIP;
+
+	ret = qcom_scm_call(__scm->dev, &desc, &res);
+
+	return ret ? : res.result[0];
+}
+EXPORT_SYMBOL(qcom_scm_enable_try_mode);
+
+int qcom_read_dload_reg(void)
+{
+	int ret;
+	u32 dload_addr_val;
+
+	ret = qcom_scm_io_readl(__scm->dload_mode_addr, &dload_addr_val);
+	if (ret) {
+		dev_err(__scm->dev,
+			"failed to read dload mode address value: %d\n", ret);
+		return -EINVAL;
+	}
+	return dload_addr_val;
+}
+EXPORT_SYMBOL(qcom_read_dload_reg);
+
 /**
  * qcom_scm_is_available() - Checks if SCM is available
  */
@@ -1457,6 +1679,334 @@ bool qcom_scm_is_available(void)
 	return !!__scm;
 }
 EXPORT_SYMBOL(qcom_scm_is_available);
+
+int qti_scm_is_tz_log_encryption_supported(void)
+{
+	int ret;
+	ret = __qcom_scm_is_call_available(__scm->dev, QCOM_SCM_SVC_BOOT,
+					   QCOM_SCM_IS_TZ_LOG_ENCRYPTED);
+
+	return (ret == 1) ? 1 : 0;
+}
+EXPORT_SYMBOL(qti_scm_is_tz_log_encryption_supported);
+
+int qti_scm_is_tz_log_encrypted(void)
+{
+	int ret;
+	struct qcom_scm_res res;
+	struct qcom_scm_desc desc = {
+		.svc = QCOM_SCM_SVC_BOOT,
+		.cmd = QCOM_SCM_IS_TZ_LOG_ENCRYPTED,
+		.owner = ARM_SMCCC_OWNER_TRUSTED_OS,
+		.arginfo = QCOM_SCM_ARGS(0),
+	};
+
+	ret = qcom_scm_call(__scm->dev, &desc, &res);
+	return ret ? : res.result[0];
+}
+EXPORT_SYMBOL(qti_scm_is_tz_log_encrypted);
+
+/**
+ * qcom_qfprom_show_authenticate() - Checks if secure boot fuse is enabled
+ */
+int qcom_qfprom_show_authenticate(void)
+{
+	int ret;
+	dma_addr_t auth_phys;
+	void *auth_buf;
+	char buf;
+	struct qcom_scm_desc desc = {
+		.svc = QCOM_SCM_SVC_FUSE,
+		.cmd = QCOM_QFPROM_IS_AUTHENTICATE_CMD,
+		.arginfo = QCOM_SCM_ARGS(2, QCOM_SCM_RO),
+		.owner = ARM_SMCCC_OWNER_SIP,
+	};
+
+	auth_buf = dma_alloc_coherent(__scm->dev, sizeof(buf),
+					&auth_phys, GFP_KERNEL);
+	if (!auth_buf) {
+		dev_err(__scm->dev, "Allocation for auth buffer failed\n");
+		return -ENOMEM;
+	}
+	desc.args[0] = (u64)auth_phys,
+	desc.args[1] = sizeof(char),
+
+	ret = qcom_scm_call(__scm->dev, &desc, NULL);
+	memcpy(&buf, auth_buf, sizeof(char));
+	dma_free_coherent(__scm->dev, sizeof(buf), auth_buf, auth_phys);
+
+	if (ret) {
+		 pr_err("%s: Error in QFPROM read : %d\n", __func__, ret);
+		 return -1;
+	}
+	return buf == 1 ? 1 : 0;
+}
+EXPORT_SYMBOL(qcom_qfprom_show_authenticate);
+
+int qcom_sec_upgrade_auth(unsigned int scm_cmd_id, unsigned int sw_type,
+				unsigned int img_size, unsigned int load_addr)
+{
+	int ret;
+	struct qcom_scm_res res;
+        struct qcom_scm_desc desc = {
+		.svc = QCOM_SCM_SVC_BOOT,
+		.cmd = scm_cmd_id,
+		.arginfo = QCOM_SCM_ARGS(3, QCOM_SCM_VAL, QCOM_SCM_VAL,
+                                                                QCOM_SCM_RW),
+                .args[0] = sw_type,
+                .args[1] = img_size,
+                .args[2] = (u64)load_addr,
+		.owner = ARM_SMCCC_OWNER_SIP,
+	};
+
+	ret = qcom_scm_call(__scm->dev, &desc, &res);
+	return ret ? : res.result[0];
+}
+EXPORT_SYMBOL(qcom_sec_upgrade_auth);
+
+int qti_scm_get_encrypted_tz_log(void *ker_buf, u32 buf_len, u32 log_id)
+{
+	int ret;
+	dma_addr_t log_buf;
+	struct qcom_scm_res res;
+	struct qcom_scm_desc desc = {
+		.svc = QCOM_SCM_SVC_BOOT,
+		.cmd = QCOM_SCM_GET_TZ_LOG_ENCRYPTED,
+		.owner = ARM_SMCCC_OWNER_TRUSTED_OS,
+	};
+
+	log_buf = dma_map_single(__scm->dev, ker_buf, buf_len, DMA_FROM_DEVICE);
+	ret = dma_mapping_error(__scm->dev, log_buf);
+
+	if (ret) {
+		dev_err(__scm->dev, "DMA Mapping error: %d\n", ret);
+		return ret;
+	}
+	desc.args[0] = log_buf;
+	desc.args[1] = buf_len;
+	desc.args[2] = log_id;
+	desc.arginfo = QCOM_SCM_ARGS(3, QCOM_SCM_RW, QCOM_SCM_VAL, QCOM_SCM_VAL);
+
+	ret = qcom_scm_call(__scm->dev, &desc, &res);
+	dma_unmap_single(__scm->dev, log_buf, buf_len, DMA_FROM_DEVICE);
+
+	return ret ? : res.result[0];
+}
+EXPORT_SYMBOL(qti_scm_get_encrypted_tz_log);
+
+/**
+ * qti_scm_tz_log() - Get trustzone diag log
+ * ker_buf: kernel buffer to store the diag log
+ * buf_len: kernel buffer length
+ *
+ * Return negative errno on failure or 0 on success. Diag log will
+ * be present in the kernel buffer passed.
+ */
+int qti_scm_tz_log(void *ker_buf, u32 buf_len)
+{
+	return __qti_scm_tz_hvc_log(__scm->dev, QCOM_SCM_SVC_INFO,
+				     QTI_SCM_TZ_DIAG_CMD, ker_buf, buf_len);
+}
+EXPORT_SYMBOL(qti_scm_tz_log);
+
+/**
+ * qti_scm_hvc_log() - Get hypervisor diag log
+ * ker_buf: kernel buffer to store the diag log
+ * buf_len: kernel buffer length
+ *
+ * Return negative errno on failure or 0 on success. Diag log will
+ * be present in the kernel buffer passed.
+ */
+int qti_scm_hvc_log(void *ker_buf, u32 buf_len)
+{
+	return __qti_scm_tz_hvc_log(__scm->dev, QCOM_SCM_SVC_INFO,
+				    __scm->hvc_log_cmd_id, ker_buf, buf_len);
+}
+EXPORT_SYMBOL(qti_scm_hvc_log);
+/**
+ * __qti_scm_tz_hvc_log() - Get trustzone diag log or hypervisor diag log
+ * @svc_id: SCM service id
+ * @cmd_id: SCM command id
+ * ker_buf: kernel buffer to store the diag log
+ * buf_len: kernel buffer length
+ *
+ * This function can be used to get either the trustzone diag log
+ * or the hypervisor diag log based on the command id passed to this
+ * function.
+ */
+
+int __qti_scm_tz_hvc_log(struct device *dev, u32 svc_id, u32 cmd_id,
+			 void *ker_buf, u32 buf_len)
+{
+	int ret;
+	dma_addr_t dma_buf;
+	struct qcom_scm_res res;
+	struct qcom_scm_desc desc = {
+		.svc = svc_id,
+		.cmd = cmd_id,
+		.owner = ARM_SMCCC_OWNER_SIP,
+		.arginfo = QCOM_SCM_ARGS(2, QCOM_SCM_RW, QCOM_SCM_VAL),
+	};
+
+	dma_buf = dma_map_single(__scm->dev, ker_buf, buf_len, DMA_FROM_DEVICE);
+
+	ret = dma_mapping_error(__scm->dev, dma_buf);
+	if (ret != 0) {
+		pr_err("DMA Mapping Error : %d\n", ret);
+		return ret;
+	}
+
+	desc.args[0] = dma_buf;
+	desc.args[1] = buf_len;
+
+	ret = qcom_scm_call(__scm->dev, &desc, &res);
+	dma_unmap_single(__scm->dev, dma_buf, buf_len, DMA_FROM_DEVICE);
+
+	return ret ? : res.result[0];
+}
+
+/**
+ * __qti_scm_get_smmustate () - Get SMMU state
+ * @svc_id: SCM service id
+ * @cmd_id: SCM command id
+ *
+ * Returns 0 - SMMU_DISABLE_NONE
+ *	   1 - SMMU_DISABLE_S2
+ *	   2 - SMMU_DISABLE_ALL on success.
+ *	  -1 - Failure
+ */
+
+int qti_scm_get_smmustate(void)
+{
+	int ret;
+	struct qcom_scm_res res;
+	struct qcom_scm_desc desc = {
+		.svc = QCOM_SCM_SVC_BOOT,
+		.cmd = __scm->smmu_state_cmd_id,
+		.owner = ARM_SMCCC_OWNER_SIP,
+		.arginfo = QCOM_SCM_ARGS(0),
+	};
+
+	ret = qcom_scm_call(__scm->dev, &desc, &res);
+	return ret ? : res.result[0];
+}
+
+int qcom_fuseipq_scm_call(u32 svc_id, u32 cmd_id,void *cmd_buf, size_t size)
+{
+	int ret;
+	struct qcom_scm_res res;
+	struct qcom_scm_desc desc = {0};
+	uint64_t *status;
+	struct fuse_blow *fuse_blow = cmd_buf;
+
+	desc.svc = svc_id;
+	desc.cmd = cmd_id;
+	desc.owner = ARM_SMCCC_OWNER_SIP;
+	desc.args[0] = fuse_blow->address;
+
+	if (fuse_blow->size) {
+		desc.args[1] = fuse_blow->size;
+		desc.arginfo = QCOM_SCM_ARGS(2, QCOM_SCM_RO, QCOM_SCM_VAL);
+	} else {
+		desc.arginfo = QCOM_SCM_ARGS(1, QCOM_SCM_RO);
+	}
+
+	ret = qcom_scm_call(__scm->dev, &desc, &res);
+
+	status = (uint64_t *)fuse_blow->status;
+	*status = res.result[0];
+	return ret;
+}
+EXPORT_SYMBOL(qcom_fuseipq_scm_call);
+
+/**
+ * qcom_scm_sec_auth_available() - Checks if SEC_AUTH is supported.
+ *
+ * Return true if SEC_AUTH is supported, false if not.
+ */
+bool qcom_scm_sec_auth_available(unsigned int scm_cmd_id)
+{
+	int ret;
+
+	ret = __qcom_scm_is_call_available(__scm->dev, QCOM_SCM_SVC_SEC_AUTH,
+						scm_cmd_id);
+	return ret > 0 ? true : false;
+}
+EXPORT_SYMBOL(qcom_scm_sec_auth_available);
+
+int qcom_sec_upgrade_auth_meta_data(unsigned int scm_cmd_id,unsigned int sw_type,
+					unsigned int img_size,unsigned int load_addr,
+					void* hash_addr,unsigned int hash_size)
+{
+	int ret;
+	struct qcom_scm_res res;
+	struct qcom_scm_desc desc = {
+		.svc = QCOM_SCM_SVC_BOOT,
+		.cmd = scm_cmd_id,
+		.arginfo = QCOM_SCM_ARGS(5, QCOM_SCM_VAL, QCOM_SCM_RW, QCOM_SCM_VAL,
+							   QCOM_SCM_RW, QCOM_SCM_VAL),
+		.owner = ARM_SMCCC_OWNER_SIP,
+	};
+	dma_addr_t hash_address;
+
+	hash_address = dma_map_single(__scm->dev, hash_addr, hash_size, DMA_FROM_DEVICE);
+
+	ret = dma_mapping_error(__scm->dev, hash_address);
+	if (ret != 0) {
+		pr_err("%s: DMA Mapping Error : %d\n", __func__, ret);
+		return ret;
+	}
+	desc.args[0] = sw_type;
+	desc.args[1] = (u64)load_addr;
+	desc.args[2] = img_size;
+	desc.args[3] = hash_address;
+	desc.args[4] = hash_size;
+
+	ret = qcom_scm_call(__scm->dev, &desc, &res);
+	dma_unmap_single(__scm->dev, hash_address, hash_size, DMA_FROM_DEVICE);
+
+	return ret ? : res.result[0];
+}
+EXPORT_SYMBOL(qcom_sec_upgrade_auth_meta_data);
+
+int qcom_qfprom_write_version(uint32_t sw_type, uint32_t value, uint32_t qfprom_ret_ptr)
+{
+	int ret;
+	struct qcom_scm_res res;
+	struct qcom_scm_desc desc = {
+		.svc = QCOM_SCM_SVC_FUSE,
+		.cmd = QCOM_QFPROM_ROW_WRITE_CMD,
+		.owner = ARM_SMCCC_OWNER_SIP,
+	};
+
+	ret = qcom_scm_call(__scm->dev, &desc, &res);
+
+	return ret ? : res.result[0];
+}
+EXPORT_SYMBOL(qcom_qfprom_write_version);
+
+int qcom_qfprom_read_version(uint32_t sw_type, uint32_t value, uint32_t qfprom_ret_ptr)
+{
+	int ret;
+	struct qcom_scm_res res;
+	struct qcom_scm_desc desc = {
+		.svc = QCOM_SCM_SVC_FUSE,
+		.cmd = QCOM_QFPROM_ROW_READ_CMD,
+		.arginfo = QCOM_SCM_ARGS(5, QCOM_SCM_VAL, QCOM_SCM_RW, QCOM_SCM_VAL,
+						QCOM_SCM_RW, QCOM_SCM_VAL),
+		.args[0] = sw_type,
+		.args[1] = (u64)value,
+		.args[2] = sizeof(uint32_t),
+		.args[3] = (u64)qfprom_ret_ptr,
+		.args[4] = sizeof(uint32_t),
+		.owner = ARM_SMCCC_OWNER_SIP,
+	};
+
+	ret = qcom_scm_call(__scm->dev, &desc, &res);
+
+	return ret ? : res.result[0];
+}
+EXPORT_SYMBOL(qcom_qfprom_read_version);
 
 static int qcom_scm_probe(struct platform_device *pdev)
 {
@@ -1471,6 +2021,15 @@ static int qcom_scm_probe(struct platform_device *pdev)
 	ret = qcom_scm_find_dload_address(&pdev->dev, &scm->dload_mode_addr);
 	if (ret < 0)
 		return ret;
+
+	ret = of_property_read_u32(pdev->dev.of_node, "hvc-log-cmd-id", &scm->hvc_log_cmd_id);
+	if (ret)
+		scm->hvc_log_cmd_id = QTI_SCM_HVC_DIAG_CMD;
+
+	ret = of_property_read_u32(pdev->dev.of_node, "smmu-state-cmd-id",
+				   &scm->smmu_state_cmd_id);
+	if (ret)
+		scm->smmu_state_cmd_id = QTI_SCM_SMMUSTATE_CMD;
 
 	mutex_init(&scm->scm_bw_lock);
 
@@ -1542,8 +2101,10 @@ static int qcom_scm_probe(struct platform_device *pdev)
 	 * will cause the boot stages to enter download mode, unless
 	 * disabled below by a clean shutdown/reboot.
 	 */
-	if (download_mode)
+	if (download_mode) {
 		qcom_scm_set_download_mode(true);
+		qcom_scm_set_cpu_regsave();
+	}
 
 	return 0;
 }
@@ -1551,8 +2112,7 @@ static int qcom_scm_probe(struct platform_device *pdev)
 static void qcom_scm_shutdown(struct platform_device *pdev)
 {
 	/* Clean shutdown, disable download mode to allow normal restart */
-	if (download_mode)
-		qcom_scm_set_download_mode(false);
+	qcom_scm_set_download_mode(false);
 }
 
 static const struct of_device_id qcom_scm_dt_match[] = {

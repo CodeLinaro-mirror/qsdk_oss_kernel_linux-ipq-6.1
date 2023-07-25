@@ -248,6 +248,13 @@ config QCOM_ICC_BWMON
 	  the fixed bandwidth votes from cpufreq (CPU nodes) thus achieve high
 	  memory throughput even with lower CPU frequencies.
 
+config QCOM_DCC_V2
+	bool "QCOM Data Capture and Compare enigne support"
+	help
+	  This option enables driver for Data Capture and Compare engine. DCC
+	  V2 driver provides interface to configure DCC block and read back
+	  captured data from DCC_V2's internal SRAM
+
 config IPQ_REG_UPDATE
 	bool "QTI, Subsystem register update driver"
 	depends on ARCH_QCOM
@@ -261,5 +268,13 @@ config MSM_RPM_LOG
 	 of messages produced by the RPM. These messages provide diagnostic
 	 information about RPM operation. The driver outputs the messages
 	 via a debugfs node.
+
+config QTI_TZ_LOG
+	tristate "Trust Zone (TZ) Log Driver"
+	depends on DEBUG_FS
+	help
+	  This option enables a driver with a debugfs interface for messages
+	  produced by the Secure code (Trust zone). These messages provide
+	  diagnostic information about TZ operation.
 
 endmenu
