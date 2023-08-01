@@ -519,6 +519,8 @@ static void ssr_notify_crash(struct rproc_subdev *subdev)
 
 	atomic_notifier_call_chain(&ssr->info->atomic_notifier_list,
 				 QCOM_SSR_NOTIFY_CRASH, &data);
+
+	BUG_ON(1);
 }
 
 /**
