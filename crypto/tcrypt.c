@@ -1802,6 +1802,10 @@ static int do_test(const char *alg, u32 type, u32 mask, int m, u32 num_mb)
 		ret = min(ret, tcrypt_test("cmac(sm4)"));
 		break;
 
+	case 180:
+		ret = min(ret, tcrypt_test("authenc(hmac(sha256),cbc(aes))"));
+		break;
+
 	case 181:
 		ret = min(ret, tcrypt_test("authenc(hmac(sha1),cbc(des))"));
 		break;
@@ -1844,6 +1848,15 @@ static int do_test(const char *alg, u32 type, u32 mask, int m, u32 num_mb)
 		ret = min(ret, tcrypt_test("cfb(aria)"));
 		ret = min(ret, tcrypt_test("ctr(aria)"));
 		break;
+
+	case 193:
+		ret = min(ret, tcrypt_test("authenc(hmac(sha384),cbc(aes))"));
+		break;
+
+	case 194:
+		ret = min(ret, tcrypt_test("authenc(hmac(sha512),cbc(aes))"));
+		break;
+
 	case 200:
 		test_cipher_speed("ecb(aes)", ENCRYPT, sec, NULL, 0,
 				speed_template_16_24_32);

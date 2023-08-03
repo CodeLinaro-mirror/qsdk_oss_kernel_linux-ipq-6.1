@@ -57,6 +57,15 @@ config PINCTRL_IPQ5332
 	  Qualcomm Technologies Inc TLMM block found on the Qualcomm
 	  Technologies Inc IPQ5332 platform.
 
+config PINCTRL_DEVSOC
+	tristate "Qualcomm Technologies Inc DEVSOC pin controller driver"
+	depends on OF
+	depends on PINCTRL_MSM
+	help
+	  This is the pinctrl, pinmux, pinconf and gpiolib driver for the
+	  Qualcomm Technologies Inc TLMM block found on the Qualcomm
+	  Technologies Inc DEVSOC platform.
+
 config PINCTRL_IPQ8074
 	tristate "Qualcomm Technologies, Inc. IPQ8074 pin controller driver"
 	depends on OF
