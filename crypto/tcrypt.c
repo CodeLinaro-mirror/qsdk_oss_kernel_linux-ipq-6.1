@@ -1702,6 +1702,14 @@ static int do_test(const char *alg, u32 type, u32 mask, int m, u32 num_mb)
 		ret = min(ret, tcrypt_test("gcm(aria)"));
 		break;
 
+	case 59:
+		ret = min(ret, tcrypt_test("ecb(aes)"));
+		break;
+
+	case 60:
+		ret = min(ret, tcrypt_test("rfc3686(ctr(aes))"));
+		break;
+
 	case 100:
 		ret = min(ret, tcrypt_test("hmac(md5)"));
 		break;
