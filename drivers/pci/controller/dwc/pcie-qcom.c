@@ -1485,6 +1485,11 @@ static int qcom_pcie_post_init_1_27_0(struct qcom_pcie *pcie)
 	u32 val;
 	int i;
 
+	val = readl(pci->dbi_base + offset + PCI_EXP_DEVCTL);
+	val &= ~PCI_EXP_DEVCTL_PAYLOAD;
+	val |= PCI_EXP_DEVCTL_PAYLOAD_256B;
+	writel(val, pci->dbi_base + offset + PCI_EXP_DEVCTL);
+
 	writel(0x8000000, pcie->parf + PCIE20_v3_PARF_SLV_ADDR_SPACE_SIZE);
 
 	val = readl(pcie->parf + PCIE20_PARF_PHY_CTRL);
