@@ -33,3 +33,4 @@ obj-$(CONFIG_QCOM_DCC_V2)	+= dcc_v2.o
 obj-$(CONFIG_IPQ_REG_UPDATE) += ipq_reg_update.o
 obj-$(CONFIG_MSM_RPM_LOG)	+= rpm_log.o
 obj-$(CONFIG_QTI_TZ_LOG) += tz_log.o
+obj-$(CONFIG_QTI_LICENSE_MANAGER) += license_manager.o
