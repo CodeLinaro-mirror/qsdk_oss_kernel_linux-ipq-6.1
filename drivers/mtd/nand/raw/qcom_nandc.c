@@ -3364,10 +3364,12 @@ static int qspi_get_appropriate_phase(struct qcom_nand_controller *nandc, u8 *ph
 	int i, cnt = 0, phase = 0x0;
 	u8 phase_ranges[TOTAL_NUM_PHASE] = {'\0'};
 
-	for (i = 0; i < phase_count; i++) {
-		if ((phase_table[i] + 1 == phase_table[i + 1]) &&
-		(phase_table[i + 1] + 1 == phase_table[i + 2]))
-			phase_ranges[cnt++] = phase_table[i + 1];
+	if ( phase_count >= 3) {
+		for (i = 0; i < phase_count -2; i++) {
+			if ((phase_table[i] + 1 == phase_table[i + 1]) &&
+			(phase_table[i + 1] + 1 == phase_table[i + 2]))
+				phase_ranges[cnt++] = phase_table[i + 1];
+		}
 	}
 
 	/* Filter out middle phase */
