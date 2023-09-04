@@ -261,6 +261,12 @@ config IPQ_REG_UPDATE
 	help
 	 Generic driver to configure required registers
 
+config IPQ_DEBUG
+	bool "QTI, Subsystem IPQ debug driver"
+	depends on ARCH_QCOM
+	help
+	 Generic driver to support debug features
+
 config MSM_RPM_LOG
 	tristate "QTI Resource Power Manager Log Driver"
 	help
