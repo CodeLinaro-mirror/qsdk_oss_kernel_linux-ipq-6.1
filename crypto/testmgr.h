@@ -18484,9 +18484,9 @@ static const struct cipher_testvec aes_lrw_tv_template[] = {
 static const struct cipher_testvec aes_xts_tv_template[] = {
 	/* http://grouper.ieee.org/groups/1619/email/pdf00086.pdf */
 #ifndef CONFIG_CRYPTO_NO_AES_XTS_ZERO_KEY_SUPPORT
-		/*
+	/*
 	 * zero-key for AES XTS is not supported in ipq6018 and ipq9574
-	 */
+         */
 	{ /* XTS-AES 1 */
 		.key    = "\x00\x00\x00\x00\x00\x00\x00\x00"
 			  "\x00\x00\x00\x00\x00\x00\x00\x00"
