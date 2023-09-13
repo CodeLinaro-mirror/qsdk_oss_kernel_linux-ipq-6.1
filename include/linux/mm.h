@@ -3494,4 +3494,8 @@ madvise_set_anon_name(struct mm_struct *mm, unsigned long start,
 }
 #endif
 
+#ifdef CONFIG_DEBUG_MEM_USAGE
+extern int debug_mem_usage_enabled;
+#endif
+
 #endif /* _LINUX_MM_H */

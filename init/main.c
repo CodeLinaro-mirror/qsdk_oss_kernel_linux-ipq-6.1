@@ -874,6 +874,7 @@ static void __init mm_init(void)
 	kmemleak_init();
 	pgtable_init();
 	debug_objects_mem_init();
+	debug_mem_usage_init();
 	vmalloc_init();
 	/* Should be run after vmap initialization */
 	if (early_page_ext_enabled())
