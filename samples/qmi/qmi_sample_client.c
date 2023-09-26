@@ -1348,6 +1348,7 @@ static ssize_t test_qmi_write(struct file *fp, const char __user *buf,
 	unsigned char cmd[64];
 	int len;
 	int index = 0;
+	int ret;
 	struct test_qmi_data *qmi_data;
 	struct qmi_handle *qmi = fp->private_data;
 	struct qmi_sample *sample = container_of(qmi, struct qmi_sample, qmi);
@@ -1369,7 +1370,9 @@ static ssize_t test_qmi_write(struct file *fp, const char __user *buf,
 	for (index = 1; index < sizeof(qdentry)/sizeof(struct qmi_dir); index++) {
 		if (!strncmp(fp->f_path.dentry->d_iname, qdentry[index].string, \
 					sizeof(fp->f_path.dentry->d_iname))) {
-			kstrtoul(cmd, 0, qdentry[index].value);
+			ret = kstrtoul(cmd, 0, qdentry[index].value);
+			if (ret)
+				return ret;
 			return count;
 		}
 	}
