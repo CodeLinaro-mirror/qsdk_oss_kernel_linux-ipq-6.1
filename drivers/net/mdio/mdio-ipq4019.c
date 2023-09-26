@@ -92,6 +92,7 @@ struct ipq4019_mdio_data {
 	struct gpio_descs *reset_gpios;
 	void (*preinit)(struct mii_bus *bus);
 	struct clk *clk[MDIO_CLK_CNT];
+	bool force_c22;
 };
 
 const char * const ppe_clk_name[] = {
@@ -109,7 +110,7 @@ static int ipq4019_mdio_wait_busy(struct mii_bus *bus)
 				  IPQ4019_MDIO_SLEEP, IPQ4019_MDIO_TIMEOUT);
 }
 
-static int ipq4019_mdio_read(struct mii_bus *bus, int mii_id, int regnum)
+static int _ipq4019_mdio_read(struct mii_bus *bus, int mii_id, int regnum)
 {
 	struct ipq4019_mdio_data *priv = bus->priv;
 	unsigned int data;
@@ -173,7 +174,7 @@ static int ipq4019_mdio_read(struct mii_bus *bus, int mii_id, int regnum)
 	return readl(priv->membase[0] + MDIO_DATA_READ_REG);
 }
 
-static int ipq4019_mdio_write(struct mii_bus *bus, int mii_id, int regnum,
+static int _ipq4019_mdio_write(struct mii_bus *bus, int mii_id, int regnum,
 							 u16 value)
 {
 	struct ipq4019_mdio_data *priv = bus->priv;
@@ -237,6 +238,43 @@ static int ipq4019_mdio_write(struct mii_bus *bus, int mii_id, int regnum,
 		return -ETIMEDOUT;
 
 	return 0;
+}
+
+static int ipq4019_mdio_read(struct mii_bus *bus, int mii_id, int regnum)
+{
+	struct ipq4019_mdio_data *priv = bus->priv;
+
+	if (priv && priv->force_c22 && (regnum & MII_ADDR_C45)) {
+		unsigned int mmd = (regnum >> 16) & 0x1F;
+		unsigned int reg = regnum & 0xFFFF;
+
+		_ipq4019_mdio_write(bus, mii_id, MII_MMD_CTRL, mmd);
+		_ipq4019_mdio_write(bus, mii_id, MII_MMD_DATA, reg);
+		_ipq4019_mdio_write(bus, mii_id, MII_MMD_CTRL, mmd | MII_MMD_CTRL_NOINCR);
+
+		return  _ipq4019_mdio_read(bus, mii_id, MII_MMD_DATA);
+	}
+
+	return _ipq4019_mdio_read(bus, mii_id, regnum);
+}
+
+static int ipq4019_mdio_write(struct mii_bus *bus, int mii_id, int regnum,
+			  u16 value)
+{
+	struct ipq4019_mdio_data *priv = bus->priv;
+
+	if (priv && priv->force_c22 && (regnum & MII_ADDR_C45)) {
+		unsigned int mmd = (regnum >> 16) & 0x1F;
+		unsigned int reg = regnum & 0xFFFF;
+
+		_ipq4019_mdio_write(bus, mii_id, MII_MMD_CTRL, mmd);
+		_ipq4019_mdio_write(bus, mii_id, MII_MMD_DATA, reg);
+		_ipq4019_mdio_write(bus, mii_id, MII_MMD_CTRL, mmd | MII_MMD_CTRL_NOINCR);
+
+		return _ipq4019_mdio_write(bus, mii_id, MII_MMD_DATA, value);
+	}
+
+	return _ipq4019_mdio_write(bus, mii_id, regnum, value);
 }
 
 static inline void split_addr(u32 regaddr, u16 *r1, u16 *r2, u16 *page, u16 *sw_addr)
@@ -759,6 +797,8 @@ static int ipq4019_mdio_probe(struct platform_device *pdev)
 
 	/* MDIO default frequency is 6.25MHz */
 	priv->clk_div = 0xf;
+	priv->force_c22 = of_property_read_bool(pdev->dev.of_node, "force_clause22");
+
 	priv->preinit = ipq_mii_preinit;
 
 	bus->name = "ipq4019_mdio";
