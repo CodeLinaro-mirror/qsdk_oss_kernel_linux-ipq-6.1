@@ -836,8 +836,9 @@ void __cfg80211_connect_result(struct net_device *dev,
 		return;
 	}
 
-	if (WARN_ON(bss_not_found)) {
+	if (bss_not_found) {
 		cfg80211_connect_result_release_bsses(wdev, cr);
+		pr_warn("%s: bss not found\n", __func__);
 		return;
 	}
 
