@@ -142,21 +142,35 @@ static int qca8k_bulk_write(struct qca8k_priv *priv, u32 reg, u32 *val, int len)
 
 static int qca8k_busy_wait(struct qca8k_priv *priv, u32 reg, u32 mask)
 {
-	u32 val;
+	unsigned long timeout;
+	u32 val = 0;
 
-	return regmap_read_poll_timeout(priv->regmap, reg, val, !(val & mask), 0,
-				       QCA8K_BUSY_WAIT_TIMEOUT * USEC_PER_MSEC);
+	timeout = jiffies + msecs_to_jiffies(20);
+
+	/* loop until the busy flag has cleared */
+	do {
+		qca8k_read(priv, reg, &val);
+		int busy = val & mask;
+
+		if (!busy)
+			break;
+		cond_resched();
+	} while (!time_after_eq(jiffies, timeout));
+
+	return time_after_eq(jiffies, timeout);
 }
 
 static int qca8k_fdb_read(struct qca8k_priv *priv, struct qca8k_fdb *fdb)
 {
 	u32 reg[3];
-	int ret;
+	int ret = 0, i = 0;
 
 	/* load the ARL table into an array */
-	ret = qca8k_bulk_read(priv, QCA8K_REG_ATU_DATA0, reg, sizeof(reg));
-	if (ret)
-		return ret;
+	for (i = 0; i < 3; i++) {
+		ret = qca8k_read(priv, QCA8K_REG_ATU_DATA0 + (i * 4), &reg[i]);
+		if (ret)
+			return ret;
+	}
 
 	/* vid - 83:72 */
 	fdb->vid = FIELD_GET(QCA8K_ATU_VID_MASK, reg[2]);
@@ -179,6 +193,7 @@ static void qca8k_fdb_write(struct qca8k_priv *priv, u16 vid, u8 port_mask,
 			    const u8 *mac, u8 aging)
 {
 	u32 reg[3] = { 0 };
+	int i = 0;
 
 	/* vid - 83:72 */
 	reg[2] = FIELD_PREP(QCA8K_ATU_VID_MASK, vid);
@@ -195,7 +210,8 @@ static void qca8k_fdb_write(struct qca8k_priv *priv, u16 vid, u8 port_mask,
 	reg[0] |= FIELD_PREP(QCA8K_ATU_ADDR5_MASK, mac[5]);
 
 	/* load the array into the ARL table */
-	qca8k_bulk_write(priv, QCA8K_REG_ATU_DATA0, reg, sizeof(reg));
+	for (i = 0; i < 3; i++)
+		qca8k_write(priv, QCA8K_REG_ATU_DATA0 + (i * 4), reg[i]);
 }
 
 static int qca8k_fdb_access(struct qca8k_priv *priv, enum qca8k_fdb_cmd cmd,
