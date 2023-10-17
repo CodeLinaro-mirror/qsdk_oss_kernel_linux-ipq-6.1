@@ -1365,6 +1365,15 @@ static void __copy_skb_header(struct sk_buff *new, const struct sk_buff *old)
 	new->queue_mapping = old->queue_mapping;
 
 	memcpy(&new->headers, &old->headers, sizeof(new->headers));
+	/* Clear the skb recycler flags here to make sure any skb whose size
+	 * has been altered is not put back into recycler pool.
+	 */
+	new->fast_xmit = 0;
+	new->is_from_recycler = 0;
+	new->fast_recycled = 0;
+	new->recycled_for_ds = 0;
+	new->fast_qdisc = 0;
+	new->int_pri = 0;
 	CHECK_SKB_FIELD(protocol);
 	CHECK_SKB_FIELD(csum);
 	CHECK_SKB_FIELD(hash);
@@ -1393,7 +1402,6 @@ static void __copy_skb_header(struct sk_buff *new, const struct sk_buff *old)
 #ifdef CONFIG_NET_SCHED
 	CHECK_SKB_FIELD(tc_index);
 #endif
-
 }
 
 /*
@@ -2131,6 +2139,16 @@ int pskb_expand_head(struct sk_buff *skb, int nhead, int ntail,
 	 */
 	if (!skb->sk || skb->destructor == sock_edemux)
 		skb->truesize += size - osize;
+
+	/* Clear the skb recycler flags here to make sure any skb whose size
+	 * has been expanded is not put back into recycler.
+	 */
+	skb->fast_xmit = 0;
+	skb->is_from_recycler = 0;
+	skb->fast_recycled = 0;
+	skb->recycled_for_ds = 0;
+	skb->fast_qdisc = 0;
+	skb->int_pri = 0;
 
 	return 0;
 
