@@ -258,7 +258,9 @@ static ssize_t aquantia_phy_read_reg_set(struct file *fp,
 	if (!this_opt)
 		goto fail;
 
-	kstrtouint(this_opt, 0, &phy_addr);
+	if(kstrtouint(this_opt, 0, &phy_addr))
+		goto fail;
+
 	if ((options - lbuf) >= (lbuf_size - 1))
 		goto fail;
 
@@ -266,7 +268,8 @@ static ssize_t aquantia_phy_read_reg_set(struct file *fp,
 	if (!this_opt)
 		goto fail;
 
-	kstrtouint(this_opt, 0, &reg_addr);
+	if(kstrtouint(this_opt, 0, &reg_addr))
+		goto fail;
 
 	is_reabable = aquantia_phy_check_valid_reg(reg_addr);
 	if (is_reabable) {
@@ -314,7 +317,9 @@ static ssize_t aquantia_phy_write_reg_set(struct file *fp,
 	if (!this_opt)
 		goto fail;
 
-	kstrtouint(this_opt, 0, &phy_addr);
+	if(kstrtouint(this_opt, 0, &phy_addr))
+		goto fail;
+
 	if ((options - lbuf) >= (lbuf_size - 1))
 		goto fail;
 
@@ -322,7 +327,9 @@ static ssize_t aquantia_phy_write_reg_set(struct file *fp,
 	if (!this_opt)
 		goto fail;
 
-	kstrtouint(this_opt, 0, &reg_addr);
+	if(kstrtouint(this_opt, 0, &reg_addr))
+		goto fail;
+
 	if ((options - lbuf) >= (lbuf_size - 1))
 		goto fail;
 
@@ -330,9 +337,10 @@ static ssize_t aquantia_phy_write_reg_set(struct file *fp,
 	if (!this_opt)
 		goto fail;
 
-	kstrtouint(this_opt, 0, &reg_value);
+	if(kstrtouint(this_opt, 0, &reg_value))
+		goto fail;
 
-	if (phy_addr > 7)
+	if (phy_addr >= PHY_MAX_ADDR)
 		goto fail;
 
 	 /* Check 16BIT register value boundary */
