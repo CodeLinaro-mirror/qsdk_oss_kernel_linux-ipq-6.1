@@ -59,6 +59,14 @@
 #define MSTR_AXI_CLK_EN				BIT(1)
 #define BYPASS					BIT(4)
 
+#define PARF_INT_ALL_STATUS			0x224
+#define PARF_INT_ALL_CLEAR			0x228
+#define PARF_INT_ALL_MASK			0x22c
+
+/* PARF_INT_ALL_{STATUS/CLEAR/MASK} register fields */
+#define PARF_INT_ALL_LINK_DOWN                  BIT(1)
+#define PARF_INT_ALL_LINK_UP                    BIT(13)
+
 #define PCIE20_PARF_AXI_MSTR_WR_ADDR_HALT	0x178
 #define PCIE20_PARF_AXI_MSTR_WR_ADDR_HALT_V2	0x1A8
 #define PCIE20_PARF_AXI_MSTR_WR_ADDR_HALT_V2_MASK 0x1F
@@ -263,6 +271,7 @@ struct qcom_pcie {
 	uint32_t axi_wr_addr_halt;
 	uint32_t num_lanes;
 	uint32_t domain;
+	int global_irq;
 };
 
 #define to_qcom_pcie(x)		dev_get_drvdata((x)->dev)
@@ -290,6 +299,26 @@ static int qcom_pcie_start_link(struct dw_pcie *pci)
 		pcie->cfg->ops->ltssm_enable(pcie);
 
 	return 0;
+}
+
+static irqreturn_t qcom_pcie_global_irq_thread_fn(int irq, void *data)
+{
+	struct qcom_pcie *pcie = data;
+	u32 status, mask;
+
+	status = readl_relaxed(pcie->parf + PARF_INT_ALL_STATUS);
+	mask = readl_relaxed(pcie->parf + PARF_INT_ALL_MASK);
+
+	writel_relaxed(status, pcie->parf + PARF_INT_ALL_CLEAR);
+
+	status &= mask;
+
+	if (status & PARF_INT_ALL_LINK_DOWN)
+		dev_info(pcie->pci->dev, "Received Link down event\n");
+	else if (status & PARF_INT_ALL_LINK_UP)
+		dev_info(pcie->pci->dev, "Received Link up event\n");
+
+	return IRQ_HANDLED;
 }
 
 static void qcom_pcie_2_1_0_ltssm_enable(struct qcom_pcie *pcie)
@@ -2016,6 +2045,20 @@ static int qcom_pcie_probe(struct platform_device *pdev)
 	if (ret) {
 		dev_err(dev, "cannot initialize host\n");
 		goto err_phy_exit;
+	}
+
+	pcie->global_irq = platform_get_irq_byname(pdev, "global_irq");
+	if (pcie->global_irq >= 0) {
+		ret = devm_request_threaded_irq(&pdev->dev, pcie->global_irq,
+					NULL,
+					qcom_pcie_global_irq_thread_fn,
+					IRQF_TRIGGER_RISING | IRQF_ONESHOT,
+					"pcie-global", pcie);
+		if (ret) {
+			dev_err(&pdev->dev, "Unable to request global irq\n");
+			pm_runtime_disable(&pdev->dev);
+			goto err_phy_exit;
+		}
 	}
 
 	return 0;
