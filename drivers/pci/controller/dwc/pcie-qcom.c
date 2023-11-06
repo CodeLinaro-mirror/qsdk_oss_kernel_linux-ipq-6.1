@@ -118,9 +118,6 @@
 /* RATEADAPT_VAL = 256 / ((342M / 240M) - 1) */
 #define AGGR_NOC_PCIE_1LANE_RATEADAPT_VAL	0x200
 
-/* RATEADAPT_VAL = 256 / ((266M / 240M) - 1) = 2363 > Max Value 1023*/
-#define SYSTEM_NOC_PCIE_RATEADAPT_VAL_MAX	0x3FF
-
 #define SYSTEM_NOC_PCIE_RATEADAPT_BYPASS	0x1
 
 #define PCIE20_LNK_CONTROL2_LINK_STATUS2	0xa0
@@ -1523,9 +1520,7 @@ static int qcom_pcie_post_init_1_27_0(struct qcom_pcie *pcie)
 		writel(AGGR_NOC_PCIE_1LANE_RATEADAPT_VAL, pcie->aggr_noc);
 
 	if (pcie->system_noc != NULL && !IS_ERR(pcie->system_noc)) {
-		if (pcie->num_lanes == 1)
-			writel(SYSTEM_NOC_PCIE_RATEADAPT_VAL_MAX, pcie->system_noc);
-		else
+		if (pcie->num_lanes == 2)
 			writel(SYSTEM_NOC_PCIE_RATEADAPT_BYPASS, pcie->system_noc);
 	}
 
