@@ -32,6 +32,7 @@ obj-$(CONFIG_QCOM_KRYO_L2_ACCESSORS) +=	kryo-l2-accessors.o
 obj-$(CONFIG_QCOM_ICC_BWMON)	+= icc-bwmon.o
 obj-$(CONFIG_QCOM_DCC_V2)	+= dcc_v2.o
 obj-$(CONFIG_IPQ_REG_UPDATE) += ipq_reg_update.o
+obj-$(CONFIG_QCOM_SOC_NETSTANDBY) += netstandby.o
 obj-$(CONFIG_IPQ_DEBUG)	+= ipq-debug.o
 obj-$(CONFIG_MSM_RPM_LOG)	+= rpm_log.o
 obj-$(CONFIG_QTI_TZ_LOG) += tz_log.o
