@@ -3,6 +3,7 @@
 #include <net/dst_metadata.h>
 #include <net/busy_poll.h>
 #include <trace/events/net.h>
+#include "skbuff_debug.h"
 
 #define MAX_GRO_SKBS 8
 
@@ -631,9 +632,10 @@ static gro_result_t napi_skb_finish(struct napi_struct *napi,
 		break;
 
 	case GRO_MERGED_FREE:
-		if (NAPI_GRO_CB(skb)->free == NAPI_GRO_FREE_STOLEN_HEAD)
+		if (NAPI_GRO_CB(skb)->free == NAPI_GRO_FREE_STOLEN_HEAD) {
+			skbuff_debugobj_deactivate(skb);
 			napi_skb_free_stolen_head(skb);
-		else if (skb->fclone != SKB_FCLONE_UNAVAILABLE)
+		} else if (skb->fclone != SKB_FCLONE_UNAVAILABLE)
 			__kfree_skb(skb);
 		else
 			__kfree_skb_defer(skb);

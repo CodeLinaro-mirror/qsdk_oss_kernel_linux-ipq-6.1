@@ -1315,6 +1315,7 @@ static void napi_skb_cache_put(struct sk_buff *skb)
 
 void __kfree_skb_defer(struct sk_buff *skb)
 {
+	skbuff_debugobj_deactivate(skb);
 	skb_release_all(skb);
 	napi_skb_cache_put(skb);
 }
@@ -1353,6 +1354,7 @@ void napi_consume_skb(struct sk_buff *skb, int budget)
 		return;
 	}
 
+	skbuff_debugobj_deactivate(skb);
 	skb_release_all(skb);
 	napi_skb_cache_put(skb);
 }
