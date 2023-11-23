@@ -10,6 +10,7 @@
 #include <linux/module.h>
 #include <linux/of.h>
 #include <linux/platform_device.h>
+#include <linux/sched/clock.h>
 #include <linux/watchdog.h>
 #include <linux/of_device.h>
 
@@ -42,6 +43,7 @@ static const u32 reg_offset_data_kpss[] = {
 struct qcom_wdt_match_data {
 	const u32 *offset;
 	bool pretimeout;
+	u32 max_tick_count;
 };
 
 struct qcom_wdt {
@@ -65,8 +67,15 @@ struct qcom_wdt *to_qcom_wdt(struct watchdog_device *wdd)
 static irqreturn_t qcom_wdt_isr(int irq, void *arg)
 {
 	struct watchdog_device *wdd = arg;
+	unsigned long nanosec_rem;
+	unsigned long long t = sched_clock();
 
 	watchdog_notify_pretimeout(wdd);
+
+	nanosec_rem = do_div(t, 1000000000);
+	pr_info("Watchdog bark! Now = %lu.%06lu\n", (unsigned long) t,
+							nanosec_rem / 1000);
+	pr_info("Waiting for Reboot\n");
 
 	return IRQ_HANDLED;
 }
@@ -183,11 +192,13 @@ static void qcom_clk_disable_unprepare(void *data)
 static const struct qcom_wdt_match_data match_data_apcs_tmr = {
 	.offset = reg_offset_data_apcs_tmr,
 	.pretimeout = false,
+	.max_tick_count = 0x10000000U,
 };
 
 static const struct qcom_wdt_match_data match_data_kpss = {
 	.offset = reg_offset_data_kpss,
 	.pretimeout = true,
+	.max_tick_count = 0xFFFFFU,
 };
 
 static int qcom_wdt_probe(struct platform_device *pdev)
@@ -251,7 +262,7 @@ static int qcom_wdt_probe(struct platform_device *pdev)
 	 */
 	wdt->rate = clk_get_rate(clk);
 	if (wdt->rate == 0 ||
-	    wdt->rate > 0x10000000U) {
+	    wdt->rate > data->max_tick_count) {
 		dev_err(dev, "invalid clock rate\n");
 		return -EINVAL;
 	}
@@ -275,7 +286,7 @@ static int qcom_wdt_probe(struct platform_device *pdev)
 
 	wdt->wdd.ops = &qcom_wdt_ops;
 	wdt->wdd.min_timeout = 1;
-	wdt->wdd.max_timeout = 0x10000000U / wdt->rate;
+	wdt->wdd.max_timeout = data->max_tick_count / wdt->rate;
 	wdt->wdd.parent = dev;
 	wdt->layout = data->offset;
 
@@ -283,11 +294,11 @@ static int qcom_wdt_probe(struct platform_device *pdev)
 		wdt->wdd.bootstatus = WDIOF_CARDRESET;
 
 	/*
-	 * If 'timeout-sec' unspecified in devicetree, assume a 30 second
-	 * default, unless the max timeout is less than 30 seconds, then use
+	 * If 'timeout-sec' unspecified in devicetree, assume a 32 second
+	 * default, unless the max timeout is less than 32 seconds, then use
 	 * the max instead.
 	 */
-	wdt->wdd.timeout = min(wdt->wdd.max_timeout, 30U);
+	wdt->wdd.timeout = min(wdt->wdd.max_timeout, 32U);
 	watchdog_init_timeout(&wdt->wdd, 0, dev);
 
 	/*
