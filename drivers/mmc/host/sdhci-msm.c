@@ -1803,6 +1803,9 @@ out:
 
 #ifdef CONFIG_MMC_CRYPTO
 
+#define AES_128_CBC_KEY_SIZE			16
+#define AES_256_CBC_KEY_SIZE			32
+#define AES_128_XTS_KEY_SIZE			32
 #define AES_256_XTS_KEY_SIZE			64
 
 /* QCOM ICE registers */
@@ -1963,6 +1966,53 @@ static int __maybe_unused sdhci_msm_ice_resume(struct sdhci_msm_host *msm_host)
 	return sdhci_msm_ice_wait_bist_status(msm_host);
 }
 
+static int sdhci_msm_get_scm_algo_mode(struct cqhci_host *cq_host,
+				       union cqhci_crypto_cap_entry cap,
+				       enum qcom_scm_ice_cipher *cipher,
+				       u32 *key_size)
+{
+	struct device *dev = mmc_dev(cq_host->mmc);
+
+	switch (cap.key_size) {
+	case CQHCI_CRYPTO_KEY_SIZE_128:
+		fallthrough;
+	case CQHCI_CRYPTO_KEY_SIZE_256:
+		break;
+	default:
+		dev_err_ratelimited(dev, "Unhandled crypto key size %d\n",
+				    cap.key_size);
+		return -EINVAL;
+	}
+
+	switch (cap.algorithm_id) {
+	case CQHCI_CRYPTO_ALG_AES_XTS:
+		if (cap.key_size == CQHCI_CRYPTO_KEY_SIZE_256) {
+			*cipher = QCOM_SCM_ICE_CIPHER_AES_256_XTS;
+			*key_size = AES_256_XTS_KEY_SIZE;
+		} else {
+			*cipher = QCOM_SCM_ICE_CIPHER_AES_128_XTS;
+			*key_size = AES_128_XTS_KEY_SIZE;
+		}
+		break;
+	case CQHCI_CRYPTO_ALG_BITLOCKER_AES_CBC:
+		if (cap.key_size == CQHCI_CRYPTO_KEY_SIZE_256) {
+			*cipher = QCOM_SCM_ICE_CIPHER_AES_256_CBC;
+			*key_size = AES_256_CBC_KEY_SIZE;
+		} else {
+			*cipher = QCOM_SCM_ICE_CIPHER_AES_128_CBC;
+			*key_size = AES_128_CBC_KEY_SIZE;
+		}
+		break;
+	default:
+		dev_err_ratelimited(dev, "Unhandled crypto capability; algorithm_id=%d, key_size=%d\n",
+				    cap.algorithm_id, cap.key_size);
+		return -EINVAL;
+	}
+
+	dev_info(dev, "cipher: %d key_size: %d", *cipher, *key_size);
+	return 0;
+}
+
 /*
  * Program a key into a QC ICE keyslot, or evict a keyslot.  QC ICE requires
  * vendor-specific SCM calls for this; it doesn't support the standard way.
@@ -1973,27 +2023,26 @@ static int sdhci_msm_program_key(struct cqhci_host *cq_host,
 {
 	struct device *dev = mmc_dev(cq_host->mmc);
 	union cqhci_crypto_cap_entry cap;
+	enum qcom_scm_ice_cipher cipher;
 	union {
 		u8 bytes[AES_256_XTS_KEY_SIZE];
 		u32 words[AES_256_XTS_KEY_SIZE / sizeof(u32)];
 	} key;
+	u32 key_size;
 	int i;
 	int err;
 
 	if (!(cfg->config_enable & CQHCI_CRYPTO_CONFIGURATION_ENABLE))
 		return qcom_scm_ice_invalidate_key(slot);
 
-	/* Only AES-256-XTS has been tested so far. */
 	cap = cq_host->crypto_cap_array[cfg->crypto_cap_idx];
-	if (cap.algorithm_id != CQHCI_CRYPTO_ALG_AES_XTS ||
-	    cap.key_size != CQHCI_CRYPTO_KEY_SIZE_256) {
-		dev_err_ratelimited(dev,
-				    "Unhandled crypto capability; algorithm_id=%d, key_size=%d\n",
-				    cap.algorithm_id, cap.key_size);
+	if (sdhci_msm_get_scm_algo_mode(cq_host, cap, &cipher, &key_size)) {
+		dev_err(dev, "Unhandled crypto capability; algorithm_id=%d, key_size=%d\n",
+			cap.algorithm_id, cap.key_size);
 		return -EINVAL;
 	}
 
-	memcpy(key.bytes, cfg->crypto_key, AES_256_XTS_KEY_SIZE);
+	memcpy(key.bytes, cfg->crypto_key, key_size);
 
 	/*
 	 * The SCM call byte-swaps the 32-bit words of the key.  So we have to
@@ -2002,8 +2051,7 @@ static int sdhci_msm_program_key(struct cqhci_host *cq_host,
 	for (i = 0; i < ARRAY_SIZE(key.words); i++)
 		__cpu_to_be32s(&key.words[i]);
 
-	err = qcom_scm_ice_set_key(slot, key.bytes, AES_256_XTS_KEY_SIZE,
-				   QCOM_SCM_ICE_CIPHER_AES_256_XTS,
+	err = qcom_scm_ice_set_key(slot, key.bytes, key_size, cipher,
 				   cfg->data_unit_size);
 	memzero_explicit(&key, sizeof(key));
 	return err;
