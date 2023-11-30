@@ -59,6 +59,14 @@
 #define MSTR_AXI_CLK_EN				BIT(1)
 #define BYPASS					BIT(4)
 
+#define PARF_INT_ALL_STATUS			0x224
+#define PARF_INT_ALL_CLEAR			0x228
+#define PARF_INT_ALL_MASK			0x22c
+
+/* PARF_INT_ALL_{STATUS/CLEAR/MASK} register fields */
+#define PARF_INT_ALL_LINK_DOWN                  BIT(1)
+#define PARF_INT_ALL_LINK_UP                    BIT(13)
+
 #define PCIE20_PARF_AXI_MSTR_WR_ADDR_HALT	0x178
 #define PCIE20_PARF_AXI_MSTR_WR_ADDR_HALT_V2	0x1A8
 #define PCIE20_PARF_AXI_MSTR_WR_ADDR_HALT_V2_MASK 0x1F
@@ -254,6 +262,7 @@ struct qcom_pcie {
 	struct dw_pcie *pci;
 	void __iomem *parf;			/* DT parf */
 	void __iomem *elbi;			/* DT elbi */
+	resource_size_t parf_size;
 	void __iomem *aggr_noc;
 	void __iomem *system_noc;
 	union qcom_pcie_resources res;
@@ -263,6 +272,7 @@ struct qcom_pcie {
 	uint32_t axi_wr_addr_halt;
 	uint32_t num_lanes;
 	uint32_t domain;
+	int global_irq;
 };
 
 #define to_qcom_pcie(x)		dev_get_drvdata((x)->dev)
@@ -290,6 +300,26 @@ static int qcom_pcie_start_link(struct dw_pcie *pci)
 		pcie->cfg->ops->ltssm_enable(pcie);
 
 	return 0;
+}
+
+static irqreturn_t qcom_pcie_global_irq_thread_fn(int irq, void *data)
+{
+	struct qcom_pcie *pcie = data;
+	u32 status, mask;
+
+	status = readl_relaxed(pcie->parf + PARF_INT_ALL_STATUS);
+	mask = readl_relaxed(pcie->parf + PARF_INT_ALL_MASK);
+
+	writel_relaxed(status, pcie->parf + PARF_INT_ALL_CLEAR);
+
+	status &= mask;
+
+	if (status & PARF_INT_ALL_LINK_DOWN)
+		dev_info(pcie->pci->dev, "Received Link down event\n");
+	else if (status & PARF_INT_ALL_LINK_UP)
+		dev_info(pcie->pci->dev, "Received Link up event\n");
+
+	return IRQ_HANDLED;
 }
 
 static void qcom_pcie_2_1_0_ltssm_enable(struct qcom_pcie *pcie)
@@ -1443,7 +1473,7 @@ static int qcom_pcie_post_init_2_9_0(struct qcom_pcie *pcie)
 	return 0;
 }
 
-static int qcom_pcie_get_resources_1_27_0(struct qcom_pcie *pcie)
+static int qti_pcie_get_resources_1_27_0(struct qcom_pcie *pcie)
 {
 	struct qcom_pcie_resources_1_27_0 *res = &pcie->res.v1_27_0;
 	struct dw_pcie *pci = pcie->pci;
@@ -1460,14 +1490,14 @@ static int qcom_pcie_get_resources_1_27_0(struct qcom_pcie *pcie)
 	return 0;
 }
 
-static void qcom_pcie_deinit_1_27_0(struct qcom_pcie *pcie)
+static void qti_pcie_deinit_1_27_0(struct qcom_pcie *pcie)
 {
 	struct qcom_pcie_resources_1_27_0 *res = &pcie->res.v1_27_0;
 
 	clk_bulk_disable_unprepare(res->num_clks, res->clks);
 }
 
-static int qcom_pcie_init_1_27_0(struct qcom_pcie *pcie)
+static int qti_pcie_init_1_27_0(struct qcom_pcie *pcie)
 {
 	struct qcom_pcie_resources_1_27_0 *res = &pcie->res.v1_27_0;
 	struct device *dev = pcie->pci->dev;
@@ -1496,7 +1526,7 @@ static int qcom_pcie_init_1_27_0(struct qcom_pcie *pcie)
 	return clk_bulk_prepare_enable(res->num_clks, res->clks);
 }
 
-static int qcom_pcie_post_init_1_27_0(struct qcom_pcie *pcie)
+static int qti_pcie_post_init_1_27_0(struct qcom_pcie *pcie)
 {
 	struct dw_pcie *pci = pcie->pci;
 	u16 offset = dw_pcie_find_capability(pci, PCI_CAP_ID_EXP);
@@ -1785,6 +1815,33 @@ static void qcom_pcie_host_deinit(struct dw_pcie_rp *pp)
 	pcie->cfg->ops->deinit(pcie);
 }
 
+int pcie_parf_read(struct pci_dev *dev, u32 offset, u32 *val)
+{
+	struct dw_pcie_rp *pp;
+	struct dw_pcie *pci;
+	struct qcom_pcie *pcie;
+
+	if(!dev)
+		goto err;
+
+	pp = dev->bus->sysdata;
+	pci = to_dw_pcie_from_pp(pp);
+	pcie = to_qcom_pcie(pci);
+
+	if (offset > pcie->parf_size ||
+			!IS_ALIGNED((uintptr_t)pcie->parf + offset, 4))
+		goto err;
+
+	*val = readl(pcie->parf + offset);
+
+	return 0;
+
+err:
+	*val = 0;
+	return -EINVAL;
+}
+EXPORT_SYMBOL(pcie_parf_read);
+
 static const struct dw_pcie_host_ops qcom_pcie_dw_ops = {
 	.host_init	= qcom_pcie_host_init,
 	.host_deinit	= qcom_pcie_host_deinit,
@@ -1863,10 +1920,10 @@ static const struct qcom_pcie_ops ops_2_9_0 = {
 
 /* Qcom IP rev.: 1.27.0 Synopsys IP rev.: 5.80a */
 static const struct qcom_pcie_ops ops_1_27_0 = {
-	.get_resources = qcom_pcie_get_resources_1_27_0,
-	.init = qcom_pcie_init_1_27_0,
-	.post_init = qcom_pcie_post_init_1_27_0,
-	.deinit = qcom_pcie_deinit_1_27_0,
+	.get_resources = qti_pcie_get_resources_1_27_0,
+	.init = qti_pcie_init_1_27_0,
+	.post_init = qti_pcie_post_init_1_27_0,
+	.deinit = qti_pcie_deinit_1_27_0,
 	.ltssm_enable = qcom_pcie_2_3_2_ltssm_enable,
 };
 
@@ -1961,6 +2018,10 @@ static int qcom_pcie_probe(struct platform_device *pdev)
 		goto err_pm_runtime_put;
 	}
 
+	/* get the parf size which is needed for pcie_parf_read() */
+	if (res)
+		pcie->parf_size = resource_size(res);
+
 	pcie->elbi = devm_platform_ioremap_resource_byname(pdev, "elbi");
 	if (IS_ERR(pcie->elbi)) {
 		ret = PTR_ERR(pcie->elbi);
@@ -2018,6 +2079,20 @@ static int qcom_pcie_probe(struct platform_device *pdev)
 		goto err_phy_exit;
 	}
 
+	pcie->global_irq = platform_get_irq_byname(pdev, "global_irq");
+	if (pcie->global_irq >= 0) {
+		ret = devm_request_threaded_irq(&pdev->dev, pcie->global_irq,
+					NULL,
+					qcom_pcie_global_irq_thread_fn,
+					IRQF_TRIGGER_RISING | IRQF_ONESHOT,
+					"pcie-global", pcie);
+		if (ret) {
+			dev_err(&pdev->dev, "Unable to request global irq\n");
+			pm_runtime_disable(&pdev->dev);
+			goto err_phy_exit;
+		}
+	}
+
 	return 0;
 
 err_phy_exit:
@@ -2033,13 +2108,13 @@ static const struct of_device_id qcom_pcie_match[] = {
 	{ .compatible = "qcom,pcie-apq8064", .data = &cfg_2_1_0 },
 	{ .compatible = "qcom,pcie-apq8084", .data = &cfg_1_0_0 },
 	{ .compatible = "qcom,pcie-ipq4019", .data = &cfg_2_4_0 },
-	{ .compatible = "qcom,pcie-ipq5332", .data = &cfg_1_27_0 },
+	{ .compatible = "qti,pcie-ipq5332", .data = &cfg_1_27_0 },
 	{ .compatible = "qcom,pcie-devsoc", .data = &cfg_1_27_0 },
 	{ .compatible = "qcom,pcie-ipq6018", .data = &cfg_2_9_0 },
 	{ .compatible = "qcom,pcie-ipq8064", .data = &cfg_2_1_0 },
 	{ .compatible = "qcom,pcie-ipq8064-v2", .data = &cfg_2_1_0 },
 	{ .compatible = "qcom,pcie-ipq8074", .data = &cfg_2_3_3 },
-	{ .compatible = "qcom,pcie-ipq9574", .data = &cfg_1_27_0 },
+	{ .compatible = "qti,pcie-ipq9574", .data = &cfg_1_27_0 },
 	{ .compatible = "qcom,pcie-msm8996", .data = &cfg_2_3_2 },
 	{ .compatible = "qcom,pcie-qcs404", .data = &cfg_2_4_0 },
 	{ .compatible = "qcom,pcie-sa8540p", .data = &cfg_1_9_0 },
