@@ -865,7 +865,6 @@ int mhi_download_amss_image(struct mhi_controller *mhi_cntrl)
 	struct image_info *image_info = mhi_cntrl->fbc_image;
 	struct device *dev = &mhi_cntrl->mhi_dev->dev;
 	enum mhi_pm_state new_state;
-	struct pci_dev *pdev = to_pci_dev(mhi_cntrl->cntrl_dev);
 	int ret;
 
 	if (!image_info)
@@ -877,7 +876,7 @@ int mhi_download_amss_image(struct mhi_controller *mhi_cntrl)
 		return ret;
 	}
 
-	if (pdev && pdev->device == QCN9224_DEVICE_ID) {
+	if (IS_QCN9224_DEV(mhi_cntrl)) {
 		/* Download the License */
 		mhi_download_fw_license(mhi_cntrl);
 	}
