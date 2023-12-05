@@ -34,6 +34,8 @@ static struct bus_type soc_bus_type = {
 static DEVICE_ATTR(machine,		0444, soc_info_show,  NULL);
 static DEVICE_ATTR(family,		0444, soc_info_show,  NULL);
 static DEVICE_ATTR(serial_number,	0444, soc_info_show,  NULL);
+static DEVICE_ATTR(oem_id,		0444, soc_info_show,  NULL);
+static DEVICE_ATTR(prod_id,		0444, soc_info_show,  NULL);
 static DEVICE_ATTR(soc_id,		0444, soc_info_show,  NULL);
 static DEVICE_ATTR(revision,		0444, soc_info_show,  NULL);
 
@@ -57,6 +59,10 @@ static umode_t soc_attribute_mode(struct kobject *kobj,
 		return attr->mode;
 	if ((attr == &dev_attr_serial_number.attr) && soc_dev->attr->serial_number)
 		return attr->mode;
+	if ((attr == &dev_attr_oem_id.attr) && (soc_dev->attr->oem_id))
+		return attr->mode;
+	if ((attr == &dev_attr_prod_id.attr) && (soc_dev->attr->prod_id))
+		return attr->mode;
 	if ((attr == &dev_attr_soc_id.attr) && soc_dev->attr->soc_id)
 		return attr->mode;
 
@@ -78,6 +84,10 @@ static ssize_t soc_info_show(struct device *dev, struct device_attribute *attr,
 		output = soc_dev->attr->revision;
 	else if (attr == &dev_attr_serial_number)
 		output = soc_dev->attr->serial_number;
+	else if (attr == &dev_attr_oem_id)
+		output = soc_dev->attr->oem_id;
+	else if (attr == &dev_attr_prod_id)
+		output = soc_dev->attr->prod_id;
 	else if (attr == &dev_attr_soc_id)
 		output = soc_dev->attr->soc_id;
 	else
@@ -90,6 +100,8 @@ static struct attribute *soc_attr[] = {
 	&dev_attr_machine.attr,
 	&dev_attr_family.attr,
 	&dev_attr_serial_number.attr,
+	&dev_attr_oem_id.attr,
+	&dev_attr_prod_id.attr,
 	&dev_attr_soc_id.attr,
 	&dev_attr_revision.attr,
 	NULL,
