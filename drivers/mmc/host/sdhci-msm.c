@@ -2030,6 +2030,22 @@ static int sdhci_msm_get_scm_algo_mode(struct cqhci_host *cq_host,
 			*key_size = AES_128_CBC_KEY_SIZE;
 		}
 		break;
+	case CQHCI_CRYPTO_ALG_AES_ECB:
+		/* ECB mode only supports for HW key slot */
+		if (!cq_host->use_hwkey) {
+			dev_err_ratelimited(dev, "Unhandled crypto capability; "
+					"algorithm_id=%d, key_size=%d\n",
+					cap.algorithm_id, cap.key_size);
+			return -EINVAL;
+		}
+		if (cap.key_size == CQHCI_CRYPTO_KEY_SIZE_256) {
+			*cipher = QCOM_SCM_ICE_CIPHER_AES_256_ECB;
+			*key_size = AES_256_CBC_KEY_SIZE;
+		} else {
+			*cipher = QCOM_SCM_ICE_CIPHER_AES_128_ECB;
+			*key_size = AES_128_CBC_KEY_SIZE;
+		}
+		break;
 	default:
 		dev_err_ratelimited(dev, "Unhandled crypto capability; algorithm_id=%d, key_size=%d\n",
 				    cap.algorithm_id, cap.key_size);
@@ -2111,7 +2127,7 @@ static int sdhci_msm_program_key(struct cqhci_host *cq_host,
 		return -EINVAL;
 	}
 
-	if (cq_host->use_hwkey == 1)
+	if (cq_host->use_hwkey)
 		return sdhci_msm_ice_set_hwkey_config(cq_host, cipher);
 
 	if (!(cfg->config_enable & CQHCI_CRYPTO_CONFIGURATION_ENABLE))
