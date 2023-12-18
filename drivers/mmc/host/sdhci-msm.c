@@ -288,6 +288,30 @@ struct sdhci_msm_host {
 	bool vqmmc_enabled;
 };
 
+enum ice_cryto_algo_mode {
+	ICE_CRYPTO_ALGO_MODE_HW_AES_ECB = 0x0,
+	ICE_CRYPTO_ALGO_MODE_HW_AES_XTS = 0x3,
+};
+
+enum ice_crpto_key_size {
+	ICE_CRYPTO_KEY_SIZE_HW_128 = 0x0,
+	ICE_CRYPTO_KEY_SIZE_HW_256 = 0x2,
+};
+
+enum ice_crpto_key_mode {
+	ICE_CRYPTO_USE_KEY0_HW_KEY = 0x0,
+	ICE_CRYPTO_USE_KEY1_HW_KEY = 0x1,
+	ICE_CRYPTO_USE_LUT_SW_KEY0 = 0x2,
+	ICE_CRYPTO_USE_LUT_SW_KEY  = 0x3
+};
+
+struct ice_config_sec {
+	uint32_t index;
+	uint8_t key_size;
+	uint8_t algo_mode;
+	uint8_t key_mode;
+} __packed;
+
 static const struct sdhci_msm_offset *sdhci_priv_msm_offset(struct sdhci_host *host)
 {
 	struct sdhci_pltfm_host *pltfm_host = sdhci_priv(host);
@@ -1883,6 +1907,11 @@ static int sdhci_msm_ice_init(struct sdhci_msm_host *msm_host,
 		goto disable;
 	}
 
+	if (!qcom_scm_ice_hwkey_available()) {
+		dev_warn(dev, "ICE HW Key SCM interface not found\n");
+		goto disable;
+	}
+
 	msm_host->ice_mem = devm_ioremap_resource(dev, res);
 	if (IS_ERR(msm_host->ice_mem))
 		return PTR_ERR(msm_host->ice_mem);
@@ -2013,6 +2042,49 @@ static int sdhci_msm_get_scm_algo_mode(struct cqhci_host *cq_host,
 	return 0;
 }
 
+static int sdhci_msm_ice_set_hwkey_config(struct cqhci_host *cq_host,
+				       enum qcom_scm_ice_cipher cipher)
+{
+	struct device *dev = mmc_dev(cq_host->mmc);
+	struct ice_config_sec *ice = NULL;
+	int ret;
+
+	ice = kmalloc(sizeof(struct ice_config_sec), GFP_KERNEL);
+	if (!ice)
+		return -ENOMEM;
+
+	switch (cipher) {
+	case QCOM_SCM_ICE_CIPHER_AES_128_XTS:
+		ice->algo_mode = ICE_CRYPTO_ALGO_MODE_HW_AES_XTS;
+		ice->key_size = ICE_CRYPTO_KEY_SIZE_HW_128;
+		ice->key_mode = ICE_CRYPTO_USE_KEY0_HW_KEY;
+		break;
+	case QCOM_SCM_ICE_CIPHER_AES_256_XTS:
+		ice->algo_mode = ICE_CRYPTO_ALGO_MODE_HW_AES_XTS;
+		ice->key_size = ICE_CRYPTO_KEY_SIZE_HW_256;
+		ice->key_mode = ICE_CRYPTO_USE_KEY0_HW_KEY;
+		break;
+	case QCOM_SCM_ICE_CIPHER_AES_128_ECB:
+		ice->algo_mode = ICE_CRYPTO_ALGO_MODE_HW_AES_ECB;
+		ice->key_size = ICE_CRYPTO_KEY_SIZE_HW_128;
+		ice->key_mode = ICE_CRYPTO_USE_KEY0_HW_KEY;
+		break;
+	case QCOM_SCM_ICE_CIPHER_AES_256_ECB:
+		ice->algo_mode = ICE_CRYPTO_ALGO_MODE_HW_AES_ECB;
+		ice->key_size = ICE_CRYPTO_KEY_SIZE_HW_256;
+		ice->key_mode = ICE_CRYPTO_USE_KEY0_HW_KEY;
+		break;
+	default:
+		dev_err_ratelimited(dev, "Unhandled cipher for HW Key support;"
+					"cipher_id=%d\n", cipher);
+		kfree(ice);
+		return -EINVAL;
+	}
+	ret = qcom_config_sec_ice(ice, sizeof(struct ice_config_sec));
+	kfree(ice);
+	return ret;
+}
+
 /*
  * Program a key into a QC ICE keyslot, or evict a keyslot.  QC ICE requires
  * vendor-specific SCM calls for this; it doesn't support the standard way.
@@ -2032,8 +2104,6 @@ static int sdhci_msm_program_key(struct cqhci_host *cq_host,
 	int i;
 	int err;
 
-	if (!(cfg->config_enable & CQHCI_CRYPTO_CONFIGURATION_ENABLE))
-		return qcom_scm_ice_invalidate_key(slot);
 
 	cap = cq_host->crypto_cap_array[cfg->crypto_cap_idx];
 	if (sdhci_msm_get_scm_algo_mode(cq_host, cap, &cipher, &key_size)) {
@@ -2041,6 +2111,12 @@ static int sdhci_msm_program_key(struct cqhci_host *cq_host,
 			cap.algorithm_id, cap.key_size);
 		return -EINVAL;
 	}
+
+	if (cq_host->use_hwkey == 1)
+		return sdhci_msm_ice_set_hwkey_config(cq_host, cipher);
+
+	if (!(cfg->config_enable & CQHCI_CRYPTO_CONFIGURATION_ENABLE))
+		return qcom_scm_ice_invalidate_key(slot);
 
 	memcpy(key.bytes, cfg->crypto_key, key_size);
 
@@ -2053,6 +2129,7 @@ static int sdhci_msm_program_key(struct cqhci_host *cq_host,
 
 	err = qcom_scm_ice_set_key(slot, key.bytes, key_size, cipher,
 				   cfg->data_unit_size);
+
 	memzero_explicit(&key, sizeof(key));
 	return err;
 }
