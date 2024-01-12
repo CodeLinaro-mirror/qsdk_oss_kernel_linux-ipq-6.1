@@ -207,6 +207,7 @@ extern int num_to_str(char *buf, int size,
 
 /* lib/printf utilities */
 
+extern struct atomic_notifier_head panic_notifier_list;
 extern __printf(2, 3) int sprintf(char *buf, const char * fmt, ...);
 extern __printf(2, 0) int vsprintf(char *buf, const char *, va_list);
 extern __printf(3, 4)

@@ -211,6 +211,9 @@
 #define MAX_IATU_IN			256
 #define MAX_IATU_OUT			256
 
+/* Synopsys Vendor specific data */
+#define DW_PCIE_RAS_CAP_ID		0x2
+
 struct dw_pcie;
 struct dw_pcie_rp;
 struct dw_pcie_ep;
@@ -321,6 +324,7 @@ struct dw_pcie {
 	int			link_gen;
 	u8			n_fts[2];
 	bool			iatu_unroll_enabled: 1;
+	u32			ras_cap_offset;
 };
 
 #define to_dw_pcie_from_pp(port) container_of((port), struct dw_pcie, pp)
@@ -332,6 +336,7 @@ void dw_pcie_version_detect(struct dw_pcie *pci);
 
 u8 dw_pcie_find_capability(struct dw_pcie *pci, u8 cap);
 u16 dw_pcie_find_ext_capability(struct dw_pcie *pci, u8 cap);
+u16 dw_pcie_find_vsec_capability(struct dw_pcie *pci, u8 vsec_cap);
 
 int dw_pcie_read(void __iomem *addr, int size, u32 *val);
 int dw_pcie_write(void __iomem *addr, int size, u32 val);

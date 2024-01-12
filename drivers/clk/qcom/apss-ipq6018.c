@@ -90,7 +90,7 @@ static const struct qcom_cc_desc apss_ipq6018_desc = {
 static int cpu_clk_notifier_fn(struct notifier_block *nb, unsigned long action,
 				void *data)
 {
-	int err;
+	int err = NOTIFY_DONE;
 
 	if (action == PRE_RATE_CHANGE)
 		err = clk_rcg2_mux_closest_ops.set_parent(&apcs_alias0_clk_src.clkr.hw,
