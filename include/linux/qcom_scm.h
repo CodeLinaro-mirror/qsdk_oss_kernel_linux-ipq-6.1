@@ -169,6 +169,16 @@ enum qcom_scm_ice_cipher {
 	QCOM_SCM_ICE_CIPHER_AES_256_ECB = 5,
 };
 
+enum ice_cryto_algo_mode {
+	ICE_CRYPTO_ALGO_MODE_HW_AES_ECB = 0x0,
+	ICE_CRYPTO_ALGO_MODE_HW_AES_XTS = 0x3,
+};
+
+enum ice_crpto_key_size {
+	ICE_CRYPTO_KEY_SIZE_HW_128 = 0x0,
+	ICE_CRYPTO_KEY_SIZE_HW_256 = 0x2,
+};
+
 #define QCOM_SCM_VMID_HLOS       0x3
 #define QCOM_SCM_VMID_MSS_MSA    0xF
 #define QCOM_SCM_VMID_WLAN       0x18
@@ -265,7 +275,8 @@ extern int qcom_scm_ocmem_lock(enum qcom_scm_ocmem_client id, u32 offset,
 			       u32 size, u32 mode);
 extern int qcom_scm_ocmem_unlock(enum qcom_scm_ocmem_client id, u32 offset,
 				 u32 size);
-
+extern int qcom_context_ice_sec(u32 type, u8 key_size, u8 algo_mode,
+				u8 *data_ctxt, u32 data_ctxt_len, u8 *salt_ctxt, u32 salt_ctxt_len);
 extern bool qcom_scm_ice_available(void);
 extern bool qcom_scm_ice_hwkey_available(void);
 extern int qcom_scm_ice_invalidate_key(u32 index);
