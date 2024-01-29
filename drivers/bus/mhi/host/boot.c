@@ -189,7 +189,7 @@ int mhi_download_rddm_image(struct mhi_controller *mhi_cntrl, bool in_panic)
 	struct device *dev = &mhi_cntrl->mhi_dev->dev;
 	rwlock_t *pm_lock = &mhi_cntrl->pm_lock;
 	struct mhi_buf *mhi_buf = NULL;
-	u32 rx_status;
+	u32 rx_status = 0;
 	int ret;
 
 	/*
