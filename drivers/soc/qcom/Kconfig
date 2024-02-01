@@ -329,6 +329,13 @@ config QTI_LICENSE_MANAGER
 	  running to communicate the license termination mode and license
 	  files to the attached PCIe device.
 
+config QTI_HW_KEY
+	bool "QTI HW Key driver"
+	depends on QCOM_SCM
+	select KEYS
+	help
+	  This driver requests HW Key and stores in kernel keyring.
+
 config QTI_APSS_ACC
 	bool "QTI APSS Application Clock Controller"
 	depends on ARM64 && QCOM_SCM
