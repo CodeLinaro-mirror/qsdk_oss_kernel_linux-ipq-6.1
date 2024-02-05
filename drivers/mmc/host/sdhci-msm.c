@@ -288,16 +288,6 @@ struct sdhci_msm_host {
 	bool vqmmc_enabled;
 };
 
-enum ice_cryto_algo_mode {
-	ICE_CRYPTO_ALGO_MODE_HW_AES_ECB = 0x0,
-	ICE_CRYPTO_ALGO_MODE_HW_AES_XTS = 0x3,
-};
-
-enum ice_crpto_key_size {
-	ICE_CRYPTO_KEY_SIZE_HW_128 = 0x0,
-	ICE_CRYPTO_KEY_SIZE_HW_256 = 0x2,
-};
-
 enum ice_crpto_key_mode {
 	ICE_CRYPTO_USE_KEY0_HW_KEY = 0x0,
 	ICE_CRYPTO_USE_KEY1_HW_KEY = 0x1,
@@ -2092,6 +2082,7 @@ static int sdhci_msm_ice_set_hwkey_config(struct cqhci_host *cq_host,
 		ice->algo_mode = ICE_CRYPTO_ALGO_MODE_HW_AES_ECB;
 		ice->key_size = ICE_CRYPTO_KEY_SIZE_HW_128;
 		ice->key_mode = ICE_CRYPTO_USE_KEY0_HW_KEY;
+		ice->index = 0;
 		break;
 	case QCOM_SCM_ICE_CIPHER_AES_256_ECB:
 		ice->algo_mode = ICE_CRYPTO_ALGO_MODE_HW_AES_ECB;

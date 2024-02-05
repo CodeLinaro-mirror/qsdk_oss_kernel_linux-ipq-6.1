@@ -296,6 +296,70 @@ static bool __qcom_scm_is_call_available(struct device *dev, u32 svc_id,
 	return ret ? false : !!res.result[0];
 }
 
+int qcom_context_ice_sec(u32 type, u8 key_size,
+			 u8 algo_mode, u8 *data_ctxt, u32 data_ctxt_len,
+			 u8 *salt_ctxt, u32 salt_ctxt_len)
+{
+	int ret;
+	struct qcom_scm_res res;
+	void *data_ctxbuf = NULL, *salt_ctxbuf = NULL;
+	dma_addr_t data_context_phy, salt_context_phy = 0;
+
+	struct qcom_scm_desc desc = {
+		.svc = QCOM_SVC_ICE,
+		.cmd = QTI_SCM_ICE_CONTEXT_CMD,
+		.arginfo = QCOM_SCM_ARGS(7, QTI_SCM_PARAM_VAL, QTI_SCM_PARAM_VAL,
+				QTI_SCM_PARAM_VAL, QTI_SCM_PARAM_BUF_RO, QTI_SCM_PARAM_VAL,
+				QTI_SCM_PARAM_BUF_RO, QTI_SCM_PARAM_VAL),
+		.owner = ARM_SMCCC_OWNER_SIP,
+	};
+
+	data_ctxbuf = dma_alloc_coherent(__scm->dev, data_ctxt_len,
+			&data_context_phy, GFP_KERNEL);
+	if (!data_ctxbuf)
+		return -ENOMEM;
+
+	if (data_ctxt) {
+		memcpy(data_ctxbuf, data_ctxt, data_ctxt_len);
+	} else {
+		ret = -EINVAL;
+		goto dma_unmap_data_ctxbuf;
+	}
+	if (algo_mode == ICE_CRYPTO_ALGO_MODE_HW_AES_XTS && salt_ctxt) {
+		salt_ctxbuf = dma_alloc_coherent(__scm->dev, salt_ctxt_len,
+				&salt_context_phy, GFP_KERNEL);
+		if (!salt_ctxbuf) {
+			ret = -ENOMEM;
+			goto dma_unmap_data_ctxbuf;
+		}
+
+		memcpy(salt_ctxbuf, salt_ctxt, salt_ctxt_len);
+	}
+
+	desc.args[0] = type;
+	desc.args[1] = key_size;
+	desc.args[2] = algo_mode;
+	desc.args[3] = data_context_phy;
+	desc.args[4] = data_ctxt_len;
+	desc.args[5] = salt_context_phy;
+	desc.args[6] = salt_ctxt_len;
+
+	ret = qcom_scm_call(__scm->dev, &desc, &res);
+
+	if (algo_mode == ICE_CRYPTO_ALGO_MODE_HW_AES_XTS && salt_ctxt) {
+		memzero_explicit(salt_ctxt, salt_ctxt_len);
+		dma_free_coherent(__scm->dev, salt_ctxt_len,
+				salt_ctxbuf, salt_context_phy);
+	}
+
+dma_unmap_data_ctxbuf:
+	memzero_explicit(data_ctxbuf, data_ctxt_len);
+	dma_free_coherent(__scm->dev, data_ctxt_len, data_ctxbuf, data_context_phy);
+	return ret ?  : res.result[0];
+
+}
+EXPORT_SYMBOL(qcom_context_ice_sec);
+
 int qcom_config_sec_ice(void *buf, int size)
 {
 	int ret;
@@ -304,7 +368,7 @@ int qcom_config_sec_ice(void *buf, int size)
 	struct qcom_scm_desc desc = {
 		.svc = QCOM_SVC_ICE,
 		.cmd = QCOM_SCM_ICE_CMD,
-		.arginfo = QCOM_SCM_ARGS(2),
+		.arginfo = QCOM_SCM_ARGS(2, QTI_SCM_PARAM_BUF_RO, QTI_SCM_PARAM_VAL),
 		.owner = ARM_SMCCC_OWNER_SIP,
 	};
 
@@ -314,9 +378,67 @@ int qcom_config_sec_ice(void *buf, int size)
 	desc.args[1] = size;
 
 	ret = qcom_scm_call(__scm->dev, &desc, &res);
-	return ret ? false : !!res.result[0];
+	return ret ?  : res.result[0];
 }
 EXPORT_SYMBOL(qcom_config_sec_ice);
+
+int qcom_scm_derive_and_share_key(u32 key_len, uint8_t *sw_context,
+		u32 sw_context_len, uint8_t *derived_key, uint32_t derived_key_len)
+{
+	dma_addr_t dma_sw_context_buf = 0;
+	dma_addr_t dma_derived_key_buf;
+	char *sw_context_buf = NULL, *derived_key_buf = NULL;
+	int ret = -ENOMEM;
+	struct qcom_scm_res res;
+	struct qcom_scm_desc desc = {
+		.svc = QTI_SCM_DERIVE_KEY,
+		.cmd = QTI_SCM_DERIVE_KEY_PARAM_ID,
+		.arginfo = QCOM_SCM_ARGS(5, QCOM_SCM_VAL, QCOM_SCM_RO,
+								QCOM_SCM_VAL, QCOM_SCM_RW, QCOM_SCM_VAL),
+		.owner = ARM_SMCCC_OWNER_SIP,
+	};
+
+	if (sw_context_len != 0) {
+		sw_context_buf = dma_alloc_coherent(__scm->dev, PAGE_SIZE,
+				&dma_sw_context_buf, GFP_KERNEL);
+		if (sw_context_buf == NULL) {
+			pr_err("DMA Allocation failed for sw_context_buf\n");
+			return ret;
+		}
+		memcpy(sw_context_buf, sw_context, sw_context_len);
+	}
+
+	derived_key_buf = dma_alloc_coherent(__scm->dev, PAGE_SIZE,
+					     &dma_derived_key_buf, GFP_KERNEL);
+	if (derived_key_buf == NULL) {
+		pr_err("DMA Allocation failed for derived_key_buf\n");
+		goto dma_unmap_sw_context_buf;
+	}
+
+	desc.args[0] = key_len;
+	desc.args[1] = dma_sw_context_buf;
+	desc.args[2] = sw_context_len;
+	desc.args[3] = dma_derived_key_buf;
+	desc.args[4] = derived_key_len;
+
+	ret = qcom_scm_call(__scm->dev, &desc, &res);
+	if(ret != 0) {
+		pr_err("%s: Response error code is : 0x%x\n", __func__,
+				(unsigned int)res.result[0]);
+	}
+
+	memcpy(derived_key, derived_key_buf, derived_key_len);
+	dma_free_coherent(__scm->dev, PAGE_SIZE, derived_key_buf,
+			  dma_derived_key_buf);
+
+dma_unmap_sw_context_buf:
+	if (sw_context_len != 0) {
+		dma_free_coherent(__scm->dev, PAGE_SIZE, sw_context_buf,
+				  dma_sw_context_buf);
+	}
+
+	return ret ?  : res.result[0];
+}
 
 static int qcom_scm_set_boot_addr(void *entry, const u8 *cpu_bits)
 {

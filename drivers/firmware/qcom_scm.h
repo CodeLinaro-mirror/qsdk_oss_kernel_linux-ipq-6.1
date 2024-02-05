@@ -118,6 +118,11 @@ extern int __qti_scm_tz_hvc_log(struct device *dev, u32 svc_id, u32 cmd_id,
 #define QCOM_SCM_IO_READ		0x01
 #define QCOM_SCM_IO_WRITE		0x02
 
+#define QTI_SCM_PARAM_BUF_RO	0x1
+#define QTI_SCM_PARAM_VAL		0x0
+#define QTI_SCM_ICE_CMD			0x1
+#define QTI_SCM_ICE_CONTEXT_CMD	0x3
+
 #define QCOM_SCM_SVC_INFO		0x06
 #define QCOM_SCM_INFO_IS_CALL_AVAIL	0x01
 #define QCOM_SCM_IS_FEATURE_AVAIL	0x03
