@@ -132,6 +132,7 @@ static int apss_ipq6018_probe(struct platform_device *pdev)
 		case QCOM_ID_IPQ5332:
 		case QCOM_ID_IPQ5322:
 		case QCOM_ID_IPQ5300:
+		case QCOM_ID_IPQ5321:
 			ret = clk_notifier_register(apcs_alias0_clk_src.clkr.hw.clk,
 							&cpu_clk_notifier);
 			if (ret)
