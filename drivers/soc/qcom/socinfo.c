@@ -648,6 +648,9 @@ static int qcom_socinfo_probe(struct platform_device *pdev)
 	if (IS_ERR(qs->soc_dev))
 		return PTR_ERR(qs->soc_dev);
 
+	pr_info("CPU: %s, SoC Version: %s\n", qs->attr.machine,
+						qs->attr.revision);
+
 	pr_info("OEM_ID: %s, PROD_ID: %s\n", qs->attr.oem_id,
 						qs->attr.prod_id);
 
