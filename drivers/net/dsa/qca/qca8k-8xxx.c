@@ -23,6 +23,10 @@
 
 #include "qca8k.h"
 
+bool tx_hdr_offload = false;
+module_param(tx_hdr_offload, bool, S_IRUGO);
+MODULE_PARM_DESC(tx_hdr_offload, "Offload adding ath hdr process in Tx direction");
+
 static void
 qca8k_split_addr(u32 regaddr, u16 *r1, u16 *r2, u16 *page)
 {
@@ -34,6 +38,22 @@ qca8k_split_addr(u32 regaddr, u16 *r1, u16 *r2, u16 *page)
 
 	regaddr >>= 3;
 	*page = regaddr & 0x3ff;
+}
+
+static void
+mht_split_addr(uint32_t regaddr, uint16_t *r1, uint16_t *r2, uint16_t *page,
+		uint16_t *switch_phy_id)
+{
+	*r1 = regaddr & 0x1c;
+
+	regaddr >>= 5;
+	*r2 = regaddr & 0x7;
+
+	regaddr >>= 3;
+	*page = regaddr & 0xffff;
+
+	regaddr >>= 16;
+	*switch_phy_id = regaddr & 0xff;
 }
 
 static int
@@ -370,6 +390,20 @@ qca8k_regmap_read(void *ctx, uint32_t reg, uint32_t *val)
 	u16 r1, r2, page;
 	int ret;
 
+	if (priv->switch_id == QCA8K_ID_QCA8386) {
+		u16 switch_phy_id, lo, hi;
+		mht_split_addr(reg, &r1, &r2, &page, &switch_phy_id);
+
+		mutex_lock_nested(&bus->mdio_lock, MDIO_MUTEX_NESTED);
+		bus->write(bus, 0x18 | (switch_phy_id >> 5), switch_phy_id & 0x1f, page);
+		udelay(100);
+		lo = bus->read(bus, 0x10 | r2, r1);
+		hi = bus->read(bus, 0x10 | r2, r1 + 2);
+		mutex_unlock(&bus->mdio_lock);
+
+		return (hi << 16) | lo;
+	}
+
 	if (!qca8k_read_eth(priv, reg, val, sizeof(*val)))
 		return 0;
 
@@ -395,6 +429,22 @@ qca8k_regmap_write(void *ctx, uint32_t reg, uint32_t val)
 	struct mii_bus *bus = priv->bus;
 	u16 r1, r2, page;
 	int ret;
+
+	if (priv->switch_id == QCA8K_ID_QCA8386) {
+		u16 switch_phy_id, lo, hi;
+		mht_split_addr(reg, &r1, &r2, &page, &switch_phy_id);
+		lo = val & 0xffff;
+		hi = (u16) (val >> 16);
+
+		mutex_lock_nested(&bus->mdio_lock, MDIO_MUTEX_NESTED);
+		bus->write(bus, 0x18 | (switch_phy_id >> 5), switch_phy_id & 0x1f, page);
+		udelay(100);
+		bus->write(bus, 0x10 | r2, r1, lo);
+		bus->write(bus, 0x10 | r2, r1 + 2, hi);
+		mutex_unlock(&bus->mdio_lock);
+
+		return 0;
+	}
 
 	if (!qca8k_write_eth(priv, reg, &val, sizeof(val)))
 		return 0;
@@ -422,6 +472,32 @@ qca8k_regmap_update_bits(void *ctx, uint32_t reg, uint32_t mask, uint32_t write_
 	u16 r1, r2, page;
 	u32 val;
 	int ret;
+
+	if (priv->switch_id == QCA8K_ID_QCA8386) {
+		u16 switch_phy_id, lo, hi;
+		mht_split_addr(reg, &r1, &r2, &page, &switch_phy_id);
+
+		mutex_lock_nested(&bus->mdio_lock, MDIO_MUTEX_NESTED);
+		bus->write(bus, 0x18 | (switch_phy_id >> 5), switch_phy_id & 0x1f, page);
+		udelay(100);
+		lo = bus->read(bus, 0x10 | r2, r1);
+		hi = bus->read(bus, 0x10 | r2, r1 + 2);
+		val = (hi << 16) | lo;
+
+		val &= ~mask;
+		val |= write_val;
+
+		lo = val & 0xffff;
+		hi = (u16) (val >> 16);
+
+		bus->write(bus, 0x18 | (switch_phy_id >> 5), switch_phy_id & 0x1f, page);
+		udelay(100);
+		bus->write(bus, 0x10 | r2, r1, lo);
+		bus->write(bus, 0x10 | r2, r1 + 2, hi);
+		mutex_unlock(&bus->mdio_lock);
+
+		return 0;
+	}
 
 	if (!qca8k_regmap_update_bits_eth(priv, reg, mask, write_val))
 		return 0;
@@ -667,6 +743,36 @@ qca8k_port_to_phy(int port)
 	 */
 
 	return port - 1;
+}
+
+static u16
+qca8k_phy_external_mdio_read(struct qca8k_priv *priv, int port, int regnum)
+{
+	u16 phy, val;
+
+	phy = qca8k_port_to_phy(port) % PHY_MAX_ADDR;
+
+	mutex_lock_nested(&priv->bus->mdio_lock, MDIO_MUTEX_NESTED);
+
+	val = priv->bus->read(priv->bus, phy, regnum);
+
+	mutex_unlock(&priv->bus->mdio_lock);
+
+	return val;
+}
+
+static void
+qca8k_phy_external_mdio_write(struct qca8k_priv *priv, int port, int regnum, u16 data)
+{
+	u16 phy, val;
+
+	phy = qca8k_port_to_phy(port) % PHY_MAX_ADDR;
+
+	mutex_lock_nested(&priv->bus->mdio_lock, MDIO_MUTEX_NESTED);
+
+	val = priv->bus->write(priv->bus, phy, regnum, data);
+
+	mutex_unlock(&priv->bus->mdio_lock);
 }
 
 static int
@@ -1260,6 +1366,8 @@ qca8k_phylink_mac_config(struct dsa_switch *ds, int port, unsigned int mode,
 static void qca8k_phylink_get_caps(struct dsa_switch *ds, int port,
 				   struct phylink_config *config)
 {
+	struct qca8k_priv *priv = ds->priv;
+
 	switch (port) {
 	case 0: /* 1st CPU port */
 		phy_interface_set_rgmii(config->supported_interfaces);
@@ -1290,6 +1398,13 @@ static void qca8k_phylink_get_caps(struct dsa_switch *ds, int port,
 
 	config->mac_capabilities = MAC_ASYM_PAUSE | MAC_SYM_PAUSE |
 		MAC_10 | MAC_100 | MAC_1000FD;
+
+	if (priv->switch_id == QCA8K_ID_QCA8386) {
+		__set_bit(PHY_INTERFACE_MODE_USXGMII,
+			  config->supported_interfaces);
+
+		config->mac_capabilities |= MAC_2500FD;
+	}
 
 	config->legacy_pre_march2020 = false;
 }
@@ -1322,12 +1437,16 @@ qca8k_phylink_mac_link_up(struct dsa_switch *ds, int port, unsigned int mode,
 			reg = QCA8K_PORT_STATUS_SPEED_100;
 			break;
 		case SPEED_1000:
+		case SPEED_2500:
 			reg = QCA8K_PORT_STATUS_SPEED_1000;
 			break;
 		default:
 			reg = QCA8K_PORT_STATUS_LINK_AUTO;
 			break;
 		}
+
+		if (dsa_is_cpu_port(ds, port))
+			reg = QCA8K_PORT_STATUS_SPEED_1000;
 
 		if (duplex == DUPLEX_FULL)
 			reg |= QCA8K_PORT_STATUS_DUPLEX;
@@ -1609,6 +1728,37 @@ qca8k_get_tag_protocol(struct dsa_switch *ds, int port,
 	return DSA_TAG_PROTO_QCA;
 }
 
+static int qca8k_change_tag_protocol(struct dsa_switch *ds,
+					 enum dsa_tag_protocol proto)
+{
+	struct qca8k_priv *priv = ds->priv;
+
+	switch (proto) {
+	case DSA_TAG_PROTO_QCA:
+		/* using 2 bytes ath header */
+		if (qca8k_write(priv, QCA8K_HEADER_CTL,
+			QCA8K_HEADER_LENGTH_SEL_VAL(0) |
+			QCA8K_HEADER_TYPE_VAL_VAL(0)))
+			goto fail;
+		break;
+	case DSA_TAG_PROTO_4B_QCA:
+		/* using 4 bytes ath header */
+		if (qca8k_write(priv, QCA8K_HEADER_CTL,
+			QCA8K_HEADER_LENGTH_SEL_VAL(1) |
+			QCA8K_HEADER_TYPE_VAL_VAL(QCA_HDR_TYPE_VALUE)))
+			goto fail;
+		break;
+	default:
+		return -EPROTONOSUPPORT;
+	}
+
+	return 0;
+
+fail:
+	dev_err(priv->dev, "failed setting HEADER_CTL, tag driver: %d\n", proto);
+	return -EPROTO;
+}
+
 static void
 qca8k_master_change(struct dsa_switch *ds, const struct net_device *master,
 		    bool operational)
@@ -1640,6 +1790,12 @@ static int qca8k_connect_tag_protocol(struct dsa_switch *ds,
 
 		tagger_data->rw_reg_ack_handler = qca8k_rw_reg_ack_handler;
 		tagger_data->mib_autocast_handler = qca8k_mib_autocast_handler;
+		tagger_data->tx_hdr_offload = tx_hdr_offload;
+
+		break;
+	case DSA_TAG_PROTO_4B_QCA:
+		tagger_data = ds->tagger_data;
+		tagger_data->tx_hdr_offload = tx_hdr_offload;
 
 		break;
 	default:
@@ -1715,7 +1871,7 @@ qca8k_setup(struct dsa_switch *ds)
 		if (dsa_is_cpu_port(ds, i)) {
 			ret = qca8k_write(priv, QCA8K_REG_PORT_HDR_CTRL(i),
 					  FIELD_PREP(QCA8K_PORT_HDR_CTRL_TX_MASK, QCA8K_PORT_HDR_CTRL_ALL) |
-					  FIELD_PREP(QCA8K_PORT_HDR_CTRL_RX_MASK, QCA8K_PORT_HDR_CTRL_ALL));
+					  FIELD_PREP(QCA8K_PORT_HDR_CTRL_RX_MASK, QCA8K_PORT_HDR_CTRL_MGMT));
 			if (ret) {
 				dev_err(priv->dev, "failed enabling QCA header mode");
 				return ret;
@@ -1732,10 +1888,10 @@ qca8k_setup(struct dsa_switch *ds)
 	 * for igmp, unknown, multicast and broadcast packet
 	 */
 	ret = qca8k_write(priv, QCA8K_REG_GLOBAL_FW_CTRL1,
-			  FIELD_PREP(QCA8K_GLOBAL_FW_CTRL1_IGMP_DP_MASK, BIT(cpu_port)) |
-			  FIELD_PREP(QCA8K_GLOBAL_FW_CTRL1_BC_DP_MASK, BIT(cpu_port)) |
-			  FIELD_PREP(QCA8K_GLOBAL_FW_CTRL1_MC_DP_MASK, BIT(cpu_port)) |
-			  FIELD_PREP(QCA8K_GLOBAL_FW_CTRL1_UC_DP_MASK, BIT(cpu_port)));
+			  FIELD_PREP(QCA8K_GLOBAL_FW_CTRL1_IGMP_DP_MASK, dsa_cpu_ports(ds)|dsa_user_ports(ds)) |
+			  FIELD_PREP(QCA8K_GLOBAL_FW_CTRL1_BC_DP_MASK, dsa_cpu_ports(ds)|dsa_user_ports(ds)) |
+			  FIELD_PREP(QCA8K_GLOBAL_FW_CTRL1_MC_DP_MASK, dsa_cpu_ports(ds)|dsa_user_ports(ds)) |
+			  FIELD_PREP(QCA8K_GLOBAL_FW_CTRL1_UC_DP_MASK, dsa_cpu_ports(ds)|dsa_user_ports(ds)));
 	if (ret)
 		return ret;
 
@@ -1823,6 +1979,16 @@ qca8k_setup(struct dsa_switch *ds)
 				  QCA8K_PORT_HOL_CTRL1_WRED_EN,
 				  mask);
 		}
+
+		/* For port based vlans to work we need to set the
+		 * default egress vlan mode as untouched
+		 */
+		qca8k_rmw(priv, QCA8K_REG_PORT_VLAN_CTRL1(i),
+			QCA8K_PORT_VLAN_EGMODE_MASK, QCA8K_PORT_VLAN_EGMODE(0x3));
+		qca8k_rmw(priv, QCA8K_ROUTE_EGRESS_VLAN,
+			QCA8K_ROUTE_EGRESS_VLAN_MASK(i),
+			QCA8K_ROUTE_EGRESS_VLAN_VAL(i, 0x3));
+
 	}
 
 	/* Special GLOBAL_FC_THRESH value are needed for ar8327 switch */
@@ -1840,6 +2006,12 @@ qca8k_setup(struct dsa_switch *ds)
 	if (ret)
 		dev_warn(priv->dev, "failed setting MTU settings");
 
+	/* using 2 bytes ath header */
+	ret = qca8k_write(priv, QCA8K_HEADER_CTL,
+		QCA8K_HEADER_LENGTH_SEL_VAL(0) | QCA8K_HEADER_TYPE_VAL_VAL(0));
+	if (ret)
+		dev_warn(priv->dev, "failed setting HEADER_CTL settings\n");
+
 	/* Flush the FDB table */
 	qca8k_fdb_flush(priv);
 
@@ -1853,9 +2025,78 @@ qca8k_setup(struct dsa_switch *ds)
 	return 0;
 }
 
+static void
+qca8k_teardown(struct dsa_switch *ds)
+{
+	struct qca8k_priv *priv = ds->priv;
+	int i = 0, shift = 0, port_mask = 0;
+	u16 reg = 0;
+
+	for (i = 0; i < QCA8K_NUM_PORTS; i++) {
+		/* resume stp status */
+		qca8k_rmw(priv, QCA8K_PORT_LOOKUP_CTRL(i),
+	  		QCA8K_PORT_LOOKUP_STATE_MASK, QCA8K_PORT_LOOKUP_STATE_FORWARD);
+
+		/* resume port status */
+		qca8k_port_set_status(priv, i, 1);
+
+		if (dsa_is_cpu_port(ds, i)) {
+			/* resume cpu port flowctrl */
+			qca8k_rmw(priv, QCA8K_REG_PORT_STATUS(i),
+				QCA8K_PORT_STATUS_TXFLOW, 0);
+			qca8k_rmw(priv, QCA8K_REG_PORT_STATUS(i),
+				QCA8K_PORT_STATUS_RXFLOW, 0);
+
+			/* resume cpu portvlan member */
+			qca8k_rmw(priv, QCA8K_PORT_LOOKUP_CTRL(i),
+				  QCA8K_PORT_LOOKUP_MEMBER, dsa_user_ports(ds));
+
+			/* dsiable QCA header mode on the cpu port */
+			qca8k_write(priv, QCA8K_REG_PORT_HDR_CTRL(i),
+				FIELD_PREP(QCA8K_PORT_HDR_CTRL_TX_MASK, QCA8K_PORT_HDR_CTRL_NONE)|
+				FIELD_PREP(QCA8K_PORT_HDR_CTRL_RX_MASK, QCA8K_PORT_HDR_CTRL_NONE));
+
+			/* Recover unknown frames forwarding config */
+			port_mask = BIT(i) | dsa_user_ports(ds);
+			qca8k_write(priv, QCA8K_REG_GLOBAL_FW_CTRL1,
+			  FIELD_PREP(QCA8K_GLOBAL_FW_CTRL1_IGMP_DP_MASK, port_mask) |
+			  FIELD_PREP(QCA8K_GLOBAL_FW_CTRL1_BC_DP_MASK, port_mask) |
+			  FIELD_PREP(QCA8K_GLOBAL_FW_CTRL1_MC_DP_MASK, port_mask) |
+			  FIELD_PREP(QCA8K_GLOBAL_FW_CTRL1_UC_DP_MASK, port_mask));
+		}
+
+		if (dsa_is_user_port(ds, i)) {
+			/* resume slave portvlan member */
+			port_mask = dsa_user_ports(ds);
+			port_mask &= ~BIT(i);
+			port_mask |= dsa_cpu_ports(ds);
+			qca8k_rmw(priv, QCA8K_PORT_LOOKUP_CTRL(i),
+				  QCA8K_PORT_LOOKUP_MEMBER, port_mask);
+
+			/* resume slave portvlan default vid */
+			shift = 16 * (i % 2);
+			qca8k_rmw(priv, QCA8K_EGRESS_VLAN(i),
+				  0xffff << shift, 0 << shift);
+			qca8k_write(priv, QCA8K_REG_PORT_VLAN_CTRL0(i),
+				    QCA8K_PORT_VLAN_CVID(0) |
+				    QCA8K_PORT_VLAN_SVID(0));
+
+			/* resume phy status by external mdio */
+			reg = qca8k_phy_external_mdio_read(priv, i, MII_BMCR);
+			reg &= ~BMCR_PDOWN;
+			qca8k_phy_external_mdio_write(priv, i, MII_BMCR, reg);
+		}
+	}
+
+	/* Flush the FDB table */
+	qca8k_fdb_flush(priv);
+}
+
 static const struct dsa_switch_ops qca8k_switch_ops = {
 	.get_tag_protocol	= qca8k_get_tag_protocol,
+	.change_tag_protocol	= qca8k_change_tag_protocol,
 	.setup			= qca8k_setup,
+	.teardown		= qca8k_teardown,
 	.get_strings		= qca8k_get_strings,
 	.get_ethtool_stats	= qca8k_get_ethtool_stats,
 	.get_sset_count		= qca8k_get_sset_count,
@@ -2049,11 +2290,17 @@ static const struct qca8k_match_data qca833x = {
 	.ops = &qca8xxx_ops,
 };
 
+static const struct qca8k_match_data qca838x = {
+	.id = QCA8K_ID_QCA8386,
+	.mib_count = QCA8K_QCA833X_MIB_COUNT,
+	.ops = &qca8xxx_ops,
+};
 static const struct of_device_id qca8k_of_match[] = {
 	{ .compatible = "qca,qca8327", .data = &qca8327 },
 	{ .compatible = "qca,qca8328", .data = &qca8328 },
 	{ .compatible = "qca,qca8334", .data = &qca833x },
 	{ .compatible = "qca,qca8337", .data = &qca833x },
+	{ .compatible = "qca,qca8386", .data = &qca838x },
 	{ /* sentinel */ },
 };
 
