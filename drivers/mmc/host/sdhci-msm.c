@@ -2117,7 +2117,7 @@ static int sdhci_msm_program_key(struct cqhci_host *cq_host,
 	} key;
 	u32 key_size;
 	int i;
-	int err;
+	int err = 0;
 
 
 	cap = cq_host->crypto_cap_array[cfg->crypto_cap_idx];
@@ -2126,6 +2126,10 @@ static int sdhci_msm_program_key(struct cqhci_host *cq_host,
 			cap.algorithm_id, cap.key_size);
 		return -EINVAL;
 	}
+
+	if (!(cfg->config_enable & CQHCI_CRYPTO_CONFIGURATION_ENABLE)
+				&& cq_host->use_hwkey)
+		return err;
 
 	if (cq_host->use_hwkey)
 		return sdhci_msm_ice_set_hwkey_config(cq_host, cipher);
