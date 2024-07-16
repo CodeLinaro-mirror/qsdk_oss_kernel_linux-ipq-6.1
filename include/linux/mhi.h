@@ -490,6 +490,7 @@ struct mhi_device {
 	int ul_chan_id;
 	int dl_chan_id;
 	u32 dev_wake;
+	size_t mtu;
 };
 
 /**
@@ -520,6 +521,7 @@ struct mhi_buf {
 	const char *name;
 	dma_addr_t dma_addr;
 	size_t len;
+	struct page *page;
 };
 
 /**
