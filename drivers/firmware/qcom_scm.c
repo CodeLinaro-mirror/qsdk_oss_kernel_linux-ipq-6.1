@@ -2915,10 +2915,6 @@ int qcom_scm_sdi_disable(struct device *dev)
 {
 	int ret;
 	struct qcom_scm_res res;
-	ret = qcom_scm_clk_enable();
-	if (ret)
-		return ret;
-
 	struct qcom_scm_desc desc = {
 		.svc = QCOM_SCM_SVC_BOOT,
 		.cmd = SCM_CMD_TZ_CONFIG_HW_FOR_RAM_DUMP_ID,
@@ -2927,6 +2923,10 @@ int qcom_scm_sdi_disable(struct device *dev)
 		.arginfo = QCOM_SCM_ARGS(2, QCOM_SCM_VAL, QCOM_SCM_VAL),
 		.owner = ARM_SMCCC_OWNER_SIP,
 	};
+
+	ret = qcom_scm_clk_enable();
+	if (ret)
+		return ret;
 
 	ret = qcom_scm_call(__scm->dev, &desc, &res);
 
