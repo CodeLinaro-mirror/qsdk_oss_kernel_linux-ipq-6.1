@@ -1846,7 +1846,7 @@ int __qti_sec_crypt(struct device *dev, void *confBuf, int size)
 	desc.args[0] = (u64)conf_phys;
 	desc.args[1] = size;
 
-	return qcom_scm_call(__scm->dev, &desc, &res);
+	ret = qcom_scm_call(__scm->dev, &desc, &res);
 
 	dma_unmap_single(dev, conf_phys, size, DMA_TO_DEVICE);
 	return ret ? : res.result[0];
