@@ -80,6 +80,9 @@
 #include <linux/capability.h>
 #include <linux/user_namespace.h>
 #include <linux/indirect_call_wrapper.h>
+#ifdef CONFIG_ATHMEMDEBUG
+#include <linux/ath_memdebug.h>
+#endif
 
 #include "dev.h"
 #include "sock_destructor.h"
@@ -1062,6 +1065,9 @@ void kfree_skbmem(struct sk_buff *skb)
 {
 	struct sk_buff_fclones *fclones;
 
+#ifdef CONFIG_ATHMEMDEBUG
+	ath_update_free(skb);
+#endif
 	switch (skb->fclone) {
 	case SKB_FCLONE_UNAVAILABLE:
 		skbuff_debugobj_deactivate(skb);
