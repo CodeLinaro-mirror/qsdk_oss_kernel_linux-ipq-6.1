@@ -708,7 +708,7 @@ static void ipq_cmn_clk_reset(struct mii_bus *bus)
 {
 	u32 reg_val, clk_en;
 	const char *cmn_ref_clk;
-	const struct device_node *child;
+	struct device_node *child;
 	struct ipq4019_mdio_data *priv = bus->priv;
 
 	if (priv && priv->membase[1]) {
