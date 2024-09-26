@@ -148,6 +148,7 @@ static int _ipq4019_mdio_read(struct mii_bus *bus, int mii_id, int regnum)
 		data = readl(priv->membase[0] + MDIO_MODE_REG);
 
 		data |= MDIO_MODE_C45;
+		data &= ~MDIO_CLK_DIV_MASK;
 		data |= FIELD_PREP(MDIO_CLK_DIV_MASK, priv->clk_div);
 
 		writel(data, priv->membase[0] + MDIO_MODE_REG);
@@ -164,6 +165,7 @@ static int _ipq4019_mdio_read(struct mii_bus *bus, int mii_id, int regnum)
 		data = readl(priv->membase[0] + MDIO_MODE_REG);
 
 		data &= ~MDIO_MODE_C45;
+		data &= ~MDIO_CLK_DIV_MASK;
 		data |= FIELD_PREP(MDIO_CLK_DIV_MASK, priv->clk_div);
 
 		writel(data, priv->membase[0] + MDIO_MODE_REG);
@@ -213,6 +215,7 @@ static int _ipq4019_mdio_write(struct mii_bus *bus, int mii_id, int regnum,
 		data = readl(priv->membase[0] + MDIO_MODE_REG);
 
 		data |= MDIO_MODE_C45;
+		data &= ~MDIO_CLK_DIV_MASK;
 		data |= FIELD_PREP(MDIO_CLK_DIV_MASK, priv->clk_div);
 
 		writel(data, priv->membase[0] + MDIO_MODE_REG);
@@ -234,6 +237,7 @@ static int _ipq4019_mdio_write(struct mii_bus *bus, int mii_id, int regnum,
 		data = readl(priv->membase[0] + MDIO_MODE_REG);
 
 		data &= ~MDIO_MODE_C45;
+		data &= ~MDIO_CLK_DIV_MASK;
 		data |= FIELD_PREP(MDIO_CLK_DIV_MASK, priv->clk_div);
 
 		writel(data, priv->membase[0] + MDIO_MODE_REG);
